@@ -1,19 +1,259 @@
 """
 Contract Origination Flow
 
-The core happy-path flow for MVP-3.
+The core happy-path and unhappy-path (quarantine) flow for origination events.
 
-Steps:
-  1. Extract fields from origination event payload
-  2. Gather cross-system context (LLAS account, dealer record, etc.)
-  3. Call Validation MCP: validate_event → get proof token
-  4. Happy path: write to Ledger MCP (write_record with proof token)
-  5. Unhappy path: quarantine → wait for human override (human-in-the-loop)
-  6. Execute state transition on Ledger (ORIGINATED → ACTIVE)
-  7. Checkpoint COMPLETED
+Steps (happy path):
+  1. CONTEXT_GATHERED  — fetch Oracle LOS contract + LLAS account via MCP
+  2. VALIDATED         — call Validation Engine: validate_event → proof_token
+  3. PROOF_TOKEN_ISSUED (checkpoint, token value redacted)
+  4. LEDGER_WRITTEN    — call Ledger MCP: write_record with proof_token
+  5. STATE_TRANSITIONED — call Ledger MCP: execute_state_transition → "active"
+  6. COMPLETED         — LLAS account created, saga complete
 
-Saga checkpoints:
-  EVENT_RECEIVED → CONTEXT_GATHERED → VALIDATED →
-  PROOF_TOKEN_ISSUED → LEDGER_WRITTEN → STATE_TRANSITIONED → COMPLETED
+Unhappy path (quarantine):
+  - If validate_event returns valid=False, the event is quarantined (Validation
+    Engine writes it to validation.quarantine) and the saga is checkpointed
+    QUARANTINED. A human reviews it in the Dashboard and can approve/reject.
+  - On approval, quarantine.approved event is published to the stream and this
+    flow handles it by re-running with the override context.
+
+Called by AgentEventLoop when event_type == "contract.originated".
 """
-# TODO: Implement OriginationFlow class
+
+from typing import Any
+
+from shared.logging import get_logger
+from shared.models.saga import SagaStep
+
+from agent.core.mcp_client import llas, ledger, oracle_los, validation
+from agent.core.saga import SagaManager
+
+logger = get_logger(__name__)
+
+
+class OriginationFlow:
+    """
+    Handles the contract.originated event.
+
+    Usage:
+        flow = OriginationFlow()
+        event_loop.register_flow("contract.originated", flow)
+    """
+
+    async def __call__(self, saga: SagaManager, event: dict[str, Any]) -> None:
+        """Entry point called by AgentEventLoop."""
+        contract_id  = event["contract_id"]
+        event_id     = event["event_id"]
+        source_system = event["source_system"]
+        payload      = event["payload"]
+        timestamp    = event.get("timestamp", "")
+        correlation_id = event.get("correlation_id", "")
+        schema_version = event.get("schema_version", "1.0")
+
+        logger.info(
+            "origination_flow_started",
+            contract_id=contract_id,
+            event_id=event_id,
+            saga_id=saga.saga_id,
+        )
+
+        # ── Step 1: Gather cross-system context ───────────────────────────────
+        await saga.checkpoint(
+            SagaStep.CONTEXT_GATHERED,
+            payload={"status": "gathering"},
+            status="in_progress",
+        )
+
+        los_contract = await oracle_los.get_contract(contract_id)
+        llas_account = await llas.get_account(contract_id)
+
+        context: dict[str, Any] = {
+            "oracle_los_contract": los_contract,
+            "llas_account":        llas_account,
+        }
+
+        await saga.checkpoint(
+            SagaStep.CONTEXT_GATHERED,
+            payload=context,
+            status="completed",
+        )
+
+        logger.info(
+            "origination_context_gathered",
+            contract_id=contract_id,
+            event_id=event_id,
+            llas_found=llas_account.get("found", False),
+        )
+
+        # ── Step 2: Validate ──────────────────────────────────────────────────
+        await saga.checkpoint(
+            SagaStep.VALIDATED,
+            payload={"status": "validating"},
+            status="in_progress",
+        )
+
+        # Build the ValidationRequest the Validation Engine expects
+        validation_request: dict[str, Any] = {
+            "event_envelope": {
+                "event_id":       event_id,
+                "event_type":     event["event_type"],
+                "source_system":  source_system,
+                "contract_id":    contract_id,
+                "timestamp":      timestamp,
+                "correlation_id": correlation_id,
+                "schema_version": schema_version,
+                "payload":        payload,
+            },
+            "saga_id": saga.saga_id,
+            "context": context,
+        }
+
+        validation_result = await validation.validate_event(validation_request)
+
+        if not validation_result.get("valid", False):
+            # ── Unhappy path: quarantine ──────────────────────────────────────
+            failures = validation_result.get("failures", [])
+            logger.warning(
+                "origination_quarantined",
+                contract_id=contract_id,
+                event_id=event_id,
+                saga_id=saga.saga_id,
+                failure_count=len(failures),
+            )
+            await saga.checkpoint(
+                SagaStep.VALIDATED,
+                payload={"valid": False, "failures": failures},
+                status="completed",
+            )
+            # Validation Engine already wrote to validation.quarantine;
+            # saga.quarantine() checkpoints QUARANTINED + marks idempotent.
+            await saga.quarantine(failures)
+            return
+
+        # ── Happy path ────────────────────────────────────────────────────────
+        proof_token = validation_result.get("proof_token", "")
+
+        await saga.checkpoint(
+            SagaStep.VALIDATED,
+            payload={"valid": True, "warnings": validation_result.get("warnings", [])},
+            status="completed",
+        )
+
+        # Step 3: Proof token received (logged — value redacted from DB)
+        await saga.checkpoint(
+            SagaStep.PROOF_TOKEN_ISSUED,
+            payload={"jti": "***REDACTED***"},
+            status="completed",
+        )
+
+        # ── Step 4: Write origination record to ledger ────────────────────────
+        await saga.checkpoint(
+            SagaStep.LEDGER_WRITTEN,
+            payload={"status": "writing"},
+            status="in_progress",
+        )
+
+        origination_record: dict[str, Any] = {
+            "contract_id":   contract_id,
+            "record_type":   "origination",
+            "saga_id":       saga.saga_id,
+            "event_id":      event_id,
+            "source_system": source_system,
+            "contract_data": payload,
+            "los_contract":  los_contract,
+        }
+
+        write_result = await ledger.write_record(
+            record=origination_record,
+            proof_token=proof_token,
+        )
+
+        record_id = write_result.get("record_id", "")
+        data_hash = write_result.get("data_hash", "")
+
+        await saga.checkpoint(
+            SagaStep.LEDGER_WRITTEN,
+            payload={
+                "record_id": record_id,
+                "data_hash": data_hash,
+                "write_guard_active": write_result.get("write_guard_active", True),
+            },
+            status="completed",
+        )
+
+        logger.info(
+            "origination_ledger_written",
+            contract_id=contract_id,
+            event_id=event_id,
+            record_id=record_id,
+        )
+
+        # ── Step 5: State transition (originated → active) ────────────────────
+        await saga.checkpoint(
+            SagaStep.STATE_TRANSITIONED,
+            payload={"status": "transitioning", "new_state": "active"},
+            status="in_progress",
+        )
+
+        await ledger.execute_state_transition(
+            contract_id=contract_id,
+            new_state="active",
+            trigger_event_id=event_id,
+            saga_id=saga.saga_id,
+        )
+
+        await saga.checkpoint(
+            SagaStep.STATE_TRANSITIONED,
+            payload={"new_state": "active", "previous_state": "originated"},
+            status="completed",
+        )
+
+        # ── Step 6: Create LLAS account ───────────────────────────────────────
+        # LLAS account creation happens after successful ledger write.
+        # If this fails, the saga is still marked complete (ledger is the source
+        # of truth; LLAS creation can be retried via reconciliation).
+        financial_terms = payload.get("financial_terms", {})
+        try:
+            await llas.create_account(
+                contract_id=contract_id,
+                account_data={
+                    "contract_id":     contract_id,
+                    "contract_type":   payload.get("contract_type", "loan"),
+                    "amount_financed": financial_terms.get("amount_financed"),
+                    "term_months":     financial_terms.get("term_months"),
+                    "monthly_payment": financial_terms.get("monthly_payment"),
+                    "origination_date": payload.get("origination_date"),
+                    "dealer_id":       payload.get("dealer_id"),
+                },
+            )
+            logger.info(
+                "llas_account_created",
+                contract_id=contract_id,
+                event_id=event_id,
+            )
+        except Exception as e:
+            # Non-fatal: log and continue. Reconciliation handles LLAS sync.
+            logger.warning(
+                "llas_account_creation_failed_non_fatal",
+                contract_id=contract_id,
+                event_id=event_id,
+                error=str(e),
+            )
+
+        # ── Complete ──────────────────────────────────────────────────────────
+        await saga.complete(
+            payload={
+                "record_id":  record_id,
+                "data_hash":  data_hash,
+                "new_state":  "active",
+            }
+        )
+
+        logger.info(
+            "origination_flow_completed",
+            contract_id=contract_id,
+            event_id=event_id,
+            saga_id=saga.saga_id,
+            record_id=record_id,
+        )
