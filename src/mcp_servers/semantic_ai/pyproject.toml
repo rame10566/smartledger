@@ -1,0 +1,15 @@
+[project]
+name = "smartledger-mcp-semantic-ai"
+version = "0.1.0"
+description = "Semantic AI Engine MCP server — extracts contract fields from PDFs using Claude API"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.7.1",
+    "anthropic>=0.30",
+    "asyncpg>=0.29",
+    "pypdf>=4.0",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

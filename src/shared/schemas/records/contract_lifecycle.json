@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/records/contract_lifecycle",
+  "title": "ContractLifecycle",
+  "description": "Aggregate view of a contract's full state history on the immutable ledger.",
+  "type": "object",
+  "required": ["contract_id", "current_state", "state_history"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_id":       { "type": "string" },
+    "current_state":     { "type": "string", "enum": ["originated", "active", "delinquent", "paid_off", "charged_off", "in_repossession", "title_released"] },
+    "origination_date":  { "type": "string", "format": "date" },
+    "maturity_date":     { "type": "string", "format": "date" },
+    "state_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "transitioned_at", "trigger_event_id"],
+        "properties": {
+          "state":              { "type": "string" },
+          "previous_state":     { "type": "string" },
+          "transitioned_at":    { "type": "string", "format": "date-time" },
+          "trigger_event_id":   { "type": "string", "format": "uuid" },
+          "fabric_tx_id":       { "type": "string" }
+        }
+      }
+    },
+    "total_payments_made":  { "type": "integer" },
+    "total_amount_paid":    { "type": "number" },
+    "current_balance":      { "type": "number" },
+    "days_past_due":        { "type": "integer" }
+  }
+}

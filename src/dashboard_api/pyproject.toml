@@ -1,0 +1,15 @@
+[project]
+name = "smartledger-dashboard-api"
+version = "0.1.0"
+description = "FastAPI REST/GraphQL server — serves the Governance Dashboard frontend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "asyncpg>=0.29",
+    "mcp>=1.7.1",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

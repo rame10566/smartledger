@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/validation/quarantine_record",
+  "title": "QuarantineRecord",
+  "description": "A quarantined event pending human review in the Governance Dashboard.",
+  "type": "object",
+  "required": ["event_id", "contract_id", "event_type", "source_system", "failures", "original_payload", "status", "created_at", "sla_deadline"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id":          { "type": "string", "format": "uuid" },
+    "contract_id":       { "type": "string" },
+    "event_type":        { "type": "string" },
+    "source_system":     { "type": "string" },
+    "failures":          {
+      "type": "array",
+      "items": { "$ref": "smartledger/validation/validation_result#/properties/failures/items" }
+    },
+    "context_snapshot":  { "type": "object", "description": "All cross-system data the agent gathered" },
+    "original_payload":  { "type": "object" },
+    "status":            { "type": "string", "enum": ["pending", "approved", "rejected", "escalated"] },
+    "escalation_level":  { "type": "integer", "minimum": 0, "maximum": 2, "description": "0=operator, 1=team_lead, 2=manager" },
+    "reviewed_by":       { "type": "string" },
+    "reviewed_at":       { "type": "string", "format": "date-time" },
+    "override_reason":   { "type": "string" },
+    "created_at":        { "type": "string", "format": "date-time" },
+    "sla_deadline":      { "type": "string", "format": "date-time", "description": "created_at + 24h — triggers first escalation" }
+  }
+}

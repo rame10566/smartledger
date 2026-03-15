@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/customer",
+  "title": "Customer",
+  "description": "Customer entity. PII fields are stored off-chain only. On-chain: hashes only.",
+  "type": "object",
+  "required": ["customer_id"],
+  "additionalProperties": false,
+  "properties": {
+    "customer_id":      { "type": "string" },
+    "name_hash":        { "type": "string", "description": "SHA-256 of full name. On-chain safe." },
+    "ssn_hash":         { "type": "string", "description": "SHA-256 of SSN. On-chain safe." },
+    "credit_score":     { "type": "integer", "minimum": 300, "maximum": 850 },
+    "credit_tier":      { "type": "string", "enum": ["prime", "near_prime", "subprime"] },
+    "date_of_birth":    { "type": "string", "format": "date", "description": "PII — off-chain only" },
+    "address":          { "$ref": "smartledger/common/address", "description": "PII — off-chain only" },
+    "email_hash":       { "type": "string", "description": "SHA-256 of email. On-chain safe." },
+    "phone_hash":       { "type": "string", "description": "SHA-256 of phone. On-chain safe." }
+  }
+}

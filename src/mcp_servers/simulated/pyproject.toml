@@ -1,0 +1,13 @@
+[project]
+name = "smartledger-mcp-simulated"
+version = "0.1.0"
+description = "Simulated external system MCP servers — Oracle LOS, Salesforce LOS, LLAS, CRM, Payment, Insurance, Dealer, Customer Portal, Mobile App, IVR"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.7.1",
+    "redis>=5.0",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

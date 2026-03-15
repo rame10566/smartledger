@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/common/money",
+  "title": "Money",
+  "description": "A monetary amount with currency. Used for all financial fields.",
+  "type": "object",
+  "required": ["amount", "currency"],
+  "additionalProperties": false,
+  "properties": {
+    "amount": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Monetary amount (non-negative)"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$",
+      "default": "USD",
+      "description": "ISO 4217 currency code (e.g. USD)"
+    }
+  },
+  "examples": [
+    { "amount": 24500.00, "currency": "USD" }
+  ]
+}

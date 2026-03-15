@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/validation/validation_request",
+  "title": "ValidationRequest",
+  "description": "Input to the Validation Engine's validate_event tool. Contains the event + all cross-system context the agent gathered.",
+  "type": "object",
+  "required": ["event_envelope", "saga_id", "context"],
+  "additionalProperties": false,
+  "properties": {
+    "event_envelope":    { "$ref": "smartledger/common/event_envelope" },
+    "saga_id":           { "type": "string", "format": "uuid" },
+    "context": {
+      "type": "object",
+      "description": "Cross-system context gathered by the agent before calling validation",
+      "properties": {
+        "oracle_los_contract":      { "type": "object", "description": "Contract data from Oracle LOS (if applicable)" },
+        "salesforce_los_contract":  { "type": "object", "description": "Contract data from Salesforce LOS (if applicable)" },
+        "llas_account":             { "type": "object", "description": "Account/balance data from LLAS" },
+        "crm_customer":             { "type": "object", "description": "Customer data from CRM" },
+        "dealer_submission":        { "type": "object", "description": "Dealer submission data" },
+        "insurance_policy":         { "type": "object", "description": "Insurance policy data" },
+        "ledger_state":             { "type": "object", "description": "Current contract state from ledger" },
+        "payment_record":           { "type": "object", "description": "Payment details (for payment events)" }
+      }
+    }
+  }
+}

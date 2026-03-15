@@ -1,0 +1,205 @@
+version: "3.9"
+
+# SmartLedger — Local Development Stack
+# Usage: docker compose up -d
+# Starts: PostgreSQL, Redis, and all Python services
+# Note: Hyperledger Fabric has its own compose in infra/fabric/
+
+services:
+
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartledger-postgres
+    environment:
+      POSTGRES_DB: smartledger
+      POSTGRES_USER: smartledger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartledger_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartledger-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── MCP Servers (Built) ───────────────────────────────────────────────────
+
+  mcp-validation:
+    build:
+      context: .
+      dockerfile: infra/docker/mcp_validation.Dockerfile
+    container_name: smartledger-mcp-validation
+    environment:
+      - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
+      - REDIS_URL=redis://redis:6379
+      - SERVICE_NAME=mcp-validation
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mcp-ledger:
+    build:
+      context: .
+      dockerfile: infra/docker/mcp_ledger.Dockerfile
+    container_name: smartledger-mcp-ledger
+    environment:
+      - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
+      - WRITE_GUARD=${WRITE_GUARD:-true}
+      - PHASE=${PHASE:-0}
+      - FABRIC_PEER_ENDPOINT=${FABRIC_PEER_ENDPOINT:-}
+      - SERVICE_NAME=mcp-ledger
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mcp-semantic-ai:
+    build:
+      context: .
+      dockerfile: infra/docker/mcp_semantic_ai.Dockerfile
+    container_name: smartledger-mcp-semantic-ai
+    environment:
+      - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SERVICE_NAME=mcp-semantic-ai
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mcp-reporting:
+    build:
+      context: .
+      dockerfile: infra/docker/mcp_reporting.Dockerfile
+    container_name: smartledger-mcp-reporting
+    environment:
+      - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
+      - SERVICE_NAME=mcp-reporting
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── Simulated MCP Servers ─────────────────────────────────────────────────
+
+  mcp-simulated:
+    build:
+      context: .
+      dockerfile: infra/docker/mcp_simulated.Dockerfile
+    container_name: smartledger-mcp-simulated
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SERVICE_NAME=mcp-simulated
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8010:8010"   # oracle_los
+      - "8011:8011"   # salesforce_los
+      - "8012:8012"   # llas
+      - "8013:8013"   # crm
+      - "8014:8014"   # payment
+      - "8015:8015"   # insurance
+      - "8016:8016"   # dealer
+      - "8017:8017"   # customer_portal
+      - "8018:8018"   # mobile_app
+      - "8019:8019"   # ivr
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ─── AI Agent + Event Bus ──────────────────────────────────────────────────
+
+  agent:
+    build:
+      context: .
+      dockerfile: infra/docker/agent.Dockerfile
+    container_name: smartledger-agent
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
+      - MCP_VALIDATION_URL=http://mcp-validation:8001
+      - MCP_LEDGER_URL=http://mcp-ledger:8002
+      - MCP_SEMANTIC_AI_URL=http://mcp-semantic-ai:8003
+      - MCP_REPORTING_URL=http://mcp-reporting:8004
+      - PHASE=${PHASE:-0}
+      - SERVICE_NAME=agent
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp-validation:
+        condition: service_started
+      mcp-ledger:
+        condition: service_started
+
+  # ─── Dashboard API ─────────────────────────────────────────────────────────
+
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: infra/docker/dashboard_api.Dockerfile
+    container_name: smartledger-dashboard-api
+    environment:
+      - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
+      - MCP_LEDGER_URL=http://mcp-ledger:8002
+      - SERVICE_NAME=dashboard-api
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── Dashboard UI ──────────────────────────────────────────────────────────
+
+  dashboard-ui:
+    build:
+      context: apps/dashboard-ui
+      dockerfile: Dockerfile
+    container_name: smartledger-dashboard-ui
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - dashboard-api
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: smartledger-network

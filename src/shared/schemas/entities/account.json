@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/account",
+  "title": "Account",
+  "description": "LLAS accounting account linked to a contract",
+  "type": "object",
+  "required": ["account_id", "contract_id", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "account_id":        { "type": "string" },
+    "contract_id":       { "type": "string" },
+    "status":            { "type": "string", "enum": ["current", "delinquent", "charged_off", "paid_off", "in_repossession"] },
+    "days_past_due":     { "type": "integer", "minimum": 0 },
+    "principal_balance": { "type": "number" },
+    "interest_accrued":  { "type": "number" },
+    "fees_outstanding":  { "type": "number" },
+    "total_outstanding": { "type": "number" },
+    "next_payment_due":  { "type": "string", "format": "date" },
+    "next_payment_amount": { "type": "number" },
+    "last_payment_date": { "type": "string", "format": "date" },
+    "last_payment_amount": { "type": "number" },
+    "as_of":             { "type": "string", "format": "date-time" }
+  }
+}

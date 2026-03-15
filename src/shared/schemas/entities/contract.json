@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/contract",
+  "title": "Contract",
+  "description": "Core contract entity. On-chain version contains hashes only — no PII.",
+  "type": "object",
+  "required": ["contract_id", "los_system", "contract_type", "origination_date", "state"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_id":       { "type": "string" },
+    "los_system":        { "type": "string", "enum": ["oracle_los", "salesforce_los"] },
+    "contract_type":     { "type": "string", "enum": ["loan", "lease"] },
+    "origination_date":  { "type": "string", "format": "date" },
+    "maturity_date":     { "type": "string", "format": "date" },
+    "state": {
+      "type": "string",
+      "enum": ["originated", "active", "delinquent", "paid_off", "charged_off", "in_repossession", "title_released"]
+    },
+    "customer":          { "$ref": "smartledger/entities/customer" },
+    "vehicle":           { "$ref": "smartledger/entities/vehicle" },
+    "financial_terms":   { "$ref": "smartledger/entities/financial_terms" },
+    "dealer_id":         { "type": "string" },
+    "data_hash":         { "type": "string", "description": "SHA-256 of full off-chain contract document" }
+  }
+}

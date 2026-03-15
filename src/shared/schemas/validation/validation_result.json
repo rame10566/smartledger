@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/validation/validation_result",
+  "title": "ValidationResult",
+  "description": "Output from the Validation Engine's validate_event tool.",
+  "type": "object",
+  "required": ["valid", "event_id", "contract_id", "saga_id", "checked_at"],
+  "additionalProperties": false,
+  "properties": {
+    "valid":             { "type": "boolean" },
+    "event_id":          { "type": "string", "format": "uuid" },
+    "contract_id":       { "type": "string" },
+    "saga_id":           { "type": "string", "format": "uuid" },
+    "checked_at":        { "type": "string", "format": "date-time" },
+    "proof_token": {
+      "type": "string",
+      "description": "Signed JWT proof token. Present ONLY when valid=true. Single-use, 60s expiry."
+    },
+    "failures": {
+      "type": "array",
+      "description": "Present when valid=false. Lists all validation failures.",
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "rule_type", "code", "message"],
+        "properties": {
+          "rule_id":   { "type": "string" },
+          "rule_type": { "type": "string", "enum": ["schema", "cross_system", "business", "sequence", "duplicate"] },
+          "code":      { "type": "string", "description": "Machine-readable rejection code e.g. VIN_MISMATCH, DUPLICATE_EVENT" },
+          "message":   { "type": "string", "description": "Human-readable description for dashboard display" },
+          "field":     { "type": "string", "description": "Field that failed (if applicable)" },
+          "expected":  { "description": "Expected value (if applicable)" },
+          "actual":    { "description": "Actual value found (if applicable)" }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Non-blocking issues noted during validation (valid=true but flagged)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code":    { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}

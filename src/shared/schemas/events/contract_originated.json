@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/contract_originated",
+  "title": "ContractOriginatedPayload",
+  "description": "Payload for event_type: contract.originated. Published by Oracle LOS or Salesforce LOS.",
+  "type": "object",
+  "required": ["contract_id", "los_system", "origination_date", "contract_type", "customer_id", "vin", "amount_financed", "term_months", "interest_rate", "monthly_payment", "dealer_id"],
+  "additionalProperties": true,
+  "properties": {
+    "contract_id":      { "type": "string" },
+    "los_system":       { "type": "string", "enum": ["oracle_los", "salesforce_los"] },
+    "origination_date": { "type": "string", "format": "date" },
+    "contract_type":    { "type": "string", "enum": ["loan", "lease"] },
+    "customer_id":      { "type": "string" },
+    "vin": {
+      "type": "string",
+      "pattern": "^[A-HJ-NPR-Z0-9]{17}$"
+    },
+    "amount_financed":  { "type": "number", "minimum": 0 },
+    "term_months":      { "type": "integer", "minimum": 1 },
+    "interest_rate":    { "type": "number", "minimum": 0, "maximum": 100 },
+    "monthly_payment":  { "type": "number", "minimum": 0 },
+    "residual_value":   { "type": "number", "minimum": 0, "description": "Lease only" },
+    "down_payment":     { "type": "number", "minimum": 0 },
+    "dealer_id":        { "type": "string" },
+    "dealer_name":      { "type": "string" }
+  }
+}

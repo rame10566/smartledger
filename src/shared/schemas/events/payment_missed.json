@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/payment_missed",
+  "title": "PaymentMissedPayload",
+  "description": "Payload for event_type: payment.missed. Published by Payment System when a scheduled payment is not received.",
+  "type": "object",
+  "required": ["contract_id", "due_date", "amount_due", "currency", "days_past_due"],
+  "additionalProperties": true,
+  "properties": {
+    "contract_id":      { "type": "string" },
+    "due_date":         { "type": "string", "format": "date" },
+    "amount_due":       { "type": "number", "minimum": 0 },
+    "currency":         { "type": "string", "default": "USD" },
+    "days_past_due":    { "type": "integer", "minimum": 1 },
+    "customer_id":      { "type": "string" },
+    "payment_number":   { "type": "integer", "description": "Which payment in the schedule (1-based)" }
+  }
+}

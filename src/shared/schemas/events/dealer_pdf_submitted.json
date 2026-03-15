@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/dealer_pdf_submitted",
+  "title": "DealerPdfSubmittedPayload",
+  "description": "Payload for event_type: dealer.pdf_submitted. Triggers the Semantic AI PDF ingestion flow.",
+  "type": "object",
+  "required": ["submission_id", "contract_id", "dealer_id", "file_reference"],
+  "additionalProperties": true,
+  "properties": {
+    "submission_id":    { "type": "string" },
+    "contract_id":      { "type": "string" },
+    "dealer_id":        { "type": "string" },
+    "file_reference":   { "type": "string", "description": "Path or URL to the PDF file" },
+    "file_name":        { "type": "string" },
+    "submitted_at":     { "type": "string", "format": "date-time" }
+  }
+}

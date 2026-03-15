@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/payment",
+  "title": "Payment",
+  "type": "object",
+  "required": ["payment_id", "contract_id", "amount", "currency", "payment_date", "payment_method"],
+  "additionalProperties": false,
+  "properties": {
+    "payment_id":        { "type": "string" },
+    "contract_id":       { "type": "string" },
+    "amount":            { "type": "number", "minimum": 0 },
+    "currency":          { "type": "string", "default": "USD" },
+    "payment_date":      { "type": "string", "format": "date-time" },
+    "effective_date":    { "type": "string", "format": "date" },
+    "payment_method":    { "type": "string", "enum": ["ach", "check", "wire", "card", "phone"] },
+    "channel":           { "type": "string", "enum": ["payment_system", "customer_portal", "mobile_app", "ivr", "dealer"] },
+    "reference_number":  { "type": "string" },
+    "applied_to": {
+      "type": "object",
+      "properties": {
+        "principal":     { "type": "number" },
+        "interest":      { "type": "number" },
+        "fees":          { "type": "number" }
+      }
+    }
+  }
+}

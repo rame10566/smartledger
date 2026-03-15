@@ -1,0 +1,15 @@
+[project]
+name = "smartledger-agent"
+version = "0.1.0"
+description = "AI Agent orchestrator — custom agent using Anthropic API + MCP Python SDK"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.30",
+    "mcp>=1.7.1",
+    "redis>=5.0",
+    "asyncpg>=0.29",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

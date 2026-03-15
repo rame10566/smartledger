@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/common/event_envelope",
+  "title": "EventEnvelope",
+  "description": "Standard wrapper for all events published to the Redis Streams event bus",
+  "type": "object",
+  "required": ["event_id", "event_type", "source_system", "contract_id", "timestamp", "correlation_id", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique event identifier. Used for idempotency dedup."
+    },
+    "event_type": {
+      "type": "string",
+      "description": "Dot-notation event type",
+      "enum": [
+        "contract.originated",
+        "dealer.submitted",
+        "dealer.pdf_submitted",
+        "payment.received",
+        "payment.missed",
+        "insurance.verified",
+        "insurance.lapsed",
+        "customer.payment_submitted",
+        "customer.payoff_requested",
+        "ivr.payment_submitted",
+        "ivr.callback_requested",
+        "report.requested",
+        "quarantine.pending",
+        "quarantine.approved",
+        "quarantine.rejected"
+      ]
+    },
+    "source_system": {
+      "type": "string",
+      "enum": [
+        "oracle_los", "salesforce_los", "llas", "crm",
+        "payment", "insurance", "dealer",
+        "customer_portal", "mobile_app", "ivr",
+        "agent", "dashboard"
+      ]
+    },
+    "contract_id": {
+      "type": "string",
+      "description": "The contract this event relates to. Used for per-contract locking."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when the event was created"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Groups related events across systems for tracing. Same as saga_id during flows."
+    },
+    "schema_version": {
+      "type": "string",
+      "default": "1.0"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event-specific data. Validated against the event_type-specific schema."
+    }
+  }
+}

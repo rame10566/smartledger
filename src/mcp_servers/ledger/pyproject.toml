@@ -1,0 +1,14 @@
+[project]
+name = "smartledger-mcp-ledger"
+version = "0.1.0"
+description = "Immutable Ledger MCP server — wraps Hyperledger Fabric + chaincode. Write guard for Phase 0."
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.7.1",
+    "asyncpg>=0.29",
+    "hfc>=1.0",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

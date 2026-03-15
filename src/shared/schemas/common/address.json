@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/common/address",
+  "title": "Address",
+  "description": "A physical mailing address. Stored off-chain only (PII).",
+  "type": "object",
+  "required": ["street1", "city", "state", "zip"],
+  "additionalProperties": false,
+  "properties": {
+    "street1": { "type": "string" },
+    "street2": { "type": "string" },
+    "city":    { "type": "string" },
+    "state":   { "type": "string", "pattern": "^[A-Z]{2}$", "description": "US state abbreviation" },
+    "zip":     { "type": "string", "pattern": "^\\d{5}(-\\d{4})?$" },
+    "country": { "type": "string", "default": "US" }
+  }
+}

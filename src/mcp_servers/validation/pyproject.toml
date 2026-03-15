@@ -1,0 +1,14 @@
+[project]
+name = "smartledger-mcp-validation"
+version = "0.1.0"
+description = "Validation Engine MCP server — validates events, issues proof tokens, manages quarantine"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.7.1",
+    "asyncpg>=0.29",
+    "redis>=5.0",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

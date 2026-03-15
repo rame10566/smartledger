@@ -1,0 +1,62 @@
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+.uv/
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# ─── Node / Next.js ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.pnpm-store/
+*.tsbuildinfo
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+# (keep docker-compose.yml, ignore overrides with local secrets)
+docker-compose.override.yml
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ─── Claude Code (local settings — machine-specific, not for version control) ─
+.claude/settings.local.json
+
+# ─── Hyperledger Fabric ───────────────────────────────────────────────────────
+infra/fabric/crypto-config/
+infra/fabric/channel-artifacts/
+
+# ─── Uploads / Generated ──────────────────────────────────────────────────────
+uploads/
+generated/
+*.pdf
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/

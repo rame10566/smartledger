@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/payment_received",
+  "title": "PaymentReceivedPayload",
+  "description": "Payload for event_type: payment.received. Published by Payment System, Customer Portal, Mobile App, or IVR.",
+  "type": "object",
+  "required": ["payment_id", "contract_id", "amount", "currency", "payment_date", "payment_method", "channel"],
+  "additionalProperties": true,
+  "properties": {
+    "payment_id":       { "type": "string" },
+    "contract_id":      { "type": "string" },
+    "amount":           { "type": "number", "minimum": 0 },
+    "currency":         { "type": "string", "default": "USD" },
+    "payment_date":     { "type": "string", "format": "date-time" },
+    "payment_method":   { "type": "string", "enum": ["ach", "check", "wire", "card", "phone"] },
+    "channel":          { "type": "string", "enum": ["payment_system", "customer_portal", "mobile_app", "ivr", "dealer"] },
+    "reference_number": { "type": "string" },
+    "customer_id":      { "type": "string" }
+  }
+}

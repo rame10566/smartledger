@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/financial_terms",
+  "title": "FinancialTerms",
+  "description": "Loan or lease financial terms",
+  "type": "object",
+  "required": ["amount_financed", "term_months", "interest_rate", "monthly_payment"],
+  "additionalProperties": false,
+  "properties": {
+    "amount_financed":   { "type": "number", "minimum": 0 },
+    "term_months":       { "type": "integer", "minimum": 1 },
+    "interest_rate":     { "type": "number", "minimum": 0, "maximum": 100, "description": "Annual percentage rate (APR)" },
+    "monthly_payment":   { "type": "number", "minimum": 0 },
+    "down_payment":      { "type": "number", "minimum": 0 },
+    "residual_value":    { "type": "number", "minimum": 0, "description": "Lease only: residual value at end of term" },
+    "money_factor":      { "type": "number", "minimum": 0, "description": "Lease only: equivalent of interest rate" },
+    "acquisition_fee":   { "type": "number", "minimum": 0 },
+    "disposition_fee":   { "type": "number", "minimum": 0, "description": "Lease only: end-of-lease fee" }
+  }
+}

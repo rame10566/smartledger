@@ -1,0 +1,20 @@
+{
+  "name": "smartledger-chaincode",
+  "version": "0.1.0",
+  "description": "Hyperledger Fabric chaincode for SmartLedger",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:dev": "fabric-chaincode-node start",
+    "lint": "eslint src/**/*.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fabric-shim": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5"
+  }
+}

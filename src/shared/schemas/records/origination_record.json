@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/records/origination_record",
+  "title": "OriginationRecord",
+  "description": "Validated origination record written to the immutable ledger (on-chain). Contains no PII — hashes only.",
+  "type": "object",
+  "required": ["record_id", "contract_id", "los_system", "origination_date", "contract_type", "customer_id_hash", "vin", "amount_financed", "term_months", "interest_rate", "monthly_payment", "dealer_id", "data_hash", "proof_token_jti"],
+  "additionalProperties": false,
+  "properties": {
+    "record_id":         { "type": "string", "format": "uuid" },
+    "contract_id":       { "type": "string" },
+    "los_system":        { "type": "string", "enum": ["oracle_los", "salesforce_los"] },
+    "origination_date":  { "type": "string", "format": "date" },
+    "maturity_date":     { "type": "string", "format": "date" },
+    "contract_type":     { "type": "string", "enum": ["loan", "lease"] },
+    "customer_id_hash":  { "type": "string", "description": "SHA-256 of customer_id" },
+    "vin":               { "type": "string", "pattern": "^[A-HJ-NPR-Z0-9]{17}$" },
+    "vehicle_make":      { "type": "string" },
+    "vehicle_model":     { "type": "string" },
+    "vehicle_year":      { "type": "integer" },
+    "amount_financed":   { "type": "number", "minimum": 0 },
+    "term_months":       { "type": "integer", "minimum": 1 },
+    "interest_rate":     { "type": "number", "minimum": 0 },
+    "monthly_payment":   { "type": "number", "minimum": 0 },
+    "residual_value":    { "type": "number", "minimum": 0 },
+    "down_payment":      { "type": "number", "minimum": 0 },
+    "dealer_id":         { "type": "string" },
+    "data_hash":         { "type": "string", "description": "SHA-256 of the full off-chain contracts.documents record" },
+    "proof_token_jti":   { "type": "string", "description": "JWT ID of the validation proof token authorizing this write" },
+    "saga_id":           { "type": "string", "format": "uuid" },
+    "correlation_id":    { "type": "string", "format": "uuid" }
+  }
+}

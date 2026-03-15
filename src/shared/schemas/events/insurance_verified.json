@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/insurance_verified",
+  "title": "InsuranceVerifiedPayload",
+  "description": "Payload for event_type: insurance.verified. Published by Insurance System when coverage is confirmed.",
+  "type": "object",
+  "required": ["contract_id", "policy_number", "carrier", "coverage_start", "coverage_end", "verified_at"],
+  "additionalProperties": true,
+  "properties": {
+    "contract_id":      { "type": "string" },
+    "policy_number":    { "type": "string" },
+    "carrier":          { "type": "string" },
+    "coverage_type":    { "type": "string", "enum": ["comprehensive", "liability", "gap"] },
+    "coverage_start":   { "type": "string", "format": "date" },
+    "coverage_end":     { "type": "string", "format": "date" },
+    "coverage_amount":  { "type": "number", "minimum": 0 },
+    "verified_at":      { "type": "string", "format": "date-time" }
+  }
+}

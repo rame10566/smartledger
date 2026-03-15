@@ -1,0 +1,12 @@
+[project]
+name = "smartledger-shared"
+version = "0.1.0"
+description = "Shared schemas, Pydantic models, and constants for SmartLedger"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "jsonschema>=4.22",
+    "structlog>=24.0",
+    "pyjwt>=2.8",
+]

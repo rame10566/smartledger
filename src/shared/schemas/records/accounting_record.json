@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/records/accounting_record",
+  "title": "AccountingRecord",
+  "description": "Validated accounting/payment record written to the immutable ledger. No PII.",
+  "type": "object",
+  "required": ["record_id", "contract_id", "record_type", "amount", "currency", "effective_date", "data_hash", "proof_token_jti"],
+  "additionalProperties": false,
+  "properties": {
+    "record_id":         { "type": "string", "format": "uuid" },
+    "contract_id":       { "type": "string" },
+    "record_type":       { "type": "string", "enum": ["payment_applied", "fee_assessed", "balance_adjustment", "payoff", "late_fee", "insurance_lapse_noted"] },
+    "amount":            { "type": "number" },
+    "currency":          { "type": "string", "default": "USD" },
+    "effective_date":    { "type": "string", "format": "date" },
+    "running_balance":   { "type": "number", "description": "Contract balance after this transaction" },
+    "applied_to": {
+      "type": "object",
+      "properties": {
+        "principal": { "type": "number" },
+        "interest":  { "type": "number" },
+        "fees":      { "type": "number" }
+      }
+    },
+    "source_event_id":   { "type": "string", "format": "uuid", "description": "event_id that triggered this record" },
+    "data_hash":         { "type": "string", "description": "SHA-256 of the full off-chain accounting data" },
+    "proof_token_jti":   { "type": "string" },
+    "saga_id":           { "type": "string", "format": "uuid" }
+  }
+}

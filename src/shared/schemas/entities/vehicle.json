@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/vehicle",
+  "title": "Vehicle",
+  "type": "object",
+  "required": ["vin", "make", "model", "year"],
+  "additionalProperties": false,
+  "properties": {
+    "vin":          { "type": "string", "pattern": "^[A-HJ-NPR-Z0-9]{17}$" },
+    "make":         { "type": "string" },
+    "model":        { "type": "string" },
+    "year":         { "type": "integer", "minimum": 1980, "maximum": 2030 },
+    "trim":         { "type": "string" },
+    "color":        { "type": "string" },
+    "mileage":      { "type": "integer", "minimum": 0 },
+    "msrp":         { "$ref": "smartledger/common/money" },
+    "invoice_price":{ "$ref": "smartledger/common/money" },
+    "condition":    { "type": "string", "enum": ["new", "used", "certified_pre_owned"] }
+  }
+}

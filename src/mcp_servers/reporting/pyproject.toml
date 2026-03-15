@@ -1,0 +1,13 @@
+[project]
+name = "smartledger-mcp-reporting"
+version = "0.1.0"
+description = "Reporting System MCP server — generates and serves reports from PostgreSQL + Ledger"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.7.1",
+    "asyncpg>=0.29",
+    "smartledger-shared",
+]
+
+[tool.uv.sources]
+smartledger-shared = { workspace = true }

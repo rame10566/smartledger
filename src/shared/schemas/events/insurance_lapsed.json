@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/insurance_lapsed",
+  "title": "InsuranceLapsedPayload",
+  "description": "Payload for event_type: insurance.lapsed. Published by Insurance System when coverage lapses mid-contract.",
+  "type": "object",
+  "required": ["contract_id", "policy_number", "lapse_date", "reason"],
+  "additionalProperties": true,
+  "properties": {
+    "contract_id":      { "type": "string" },
+    "policy_number":    { "type": "string" },
+    "lapse_date":       { "type": "string", "format": "date" },
+    "reason":           { "type": "string", "enum": ["non_payment", "cancelled", "expired", "other"] },
+    "notified_at":      { "type": "string", "format": "date-time" }
+  }
+}

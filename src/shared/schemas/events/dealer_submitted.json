@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/events/dealer_submitted",
+  "title": "DealerSubmittedPayload",
+  "description": "Payload for event_type: dealer.submitted. Published by Dealer System when a new contract is submitted.",
+  "type": "object",
+  "required": ["submission_id", "contract_id", "dealer_id", "submission_date"],
+  "additionalProperties": true,
+  "properties": {
+    "submission_id":    { "type": "string" },
+    "contract_id":      { "type": "string" },
+    "dealer_id":        { "type": "string" },
+    "dealer_name":      { "type": "string" },
+    "submission_date":  { "type": "string", "format": "date-time" },
+    "contract_type":    { "type": "string", "enum": ["loan", "lease"] },
+    "customer_id":      { "type": "string" },
+    "vin":              { "type": "string", "pattern": "^[A-HJ-NPR-Z0-9]{17}$" }
+  }
+}
