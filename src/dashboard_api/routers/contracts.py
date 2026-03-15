@@ -16,7 +16,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from agent.core.mcp_client import ledger
+from dashboard_api.mcp_clients import ledger
 from shared.logging import get_logger
 
 log = get_logger(__name__)

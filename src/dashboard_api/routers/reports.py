@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from agent.core.mcp_client import reporting
+from dashboard_api.mcp_clients import reporting
 
 router = APIRouter(tags=["reports"])
 

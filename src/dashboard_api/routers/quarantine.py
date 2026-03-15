@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from agent.core.mcp_client import validation
+from dashboard_api.mcp_clients import validation
 from shared.logging import get_logger
 
 log = get_logger(__name__)
