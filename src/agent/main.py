@@ -38,6 +38,8 @@ from agent.core.event_loop import AgentEventLoop
 from agent.core.saga import SagaManager
 from agent.flows.origination import OriginationFlow
 from agent.flows.override import OverrideFlow
+from agent.flows.payment import PaymentFlow
+from agent.flows.pdf_ingestion import PDFIngestionFlow
 
 settings = get_settings()
 configure_logging(service_name="smartledger-agent", log_level=settings.log_level)
@@ -117,6 +119,16 @@ async def main() -> None:
 
     override_flow = OverrideFlow()
     event_loop.register_flow("quarantine.approved", override_flow)
+
+    # Payment flows — same handler for all payment channel event types
+    payment_flow = PaymentFlow()
+    event_loop.register_flow("payment.received", payment_flow)
+    event_loop.register_flow("customer.payment_submitted", payment_flow)
+    event_loop.register_flow("ivr.payment_submitted", payment_flow)
+
+    # PDF ingestion flow
+    pdf_ingestion_flow = PDFIngestionFlow()
+    event_loop.register_flow("dealer.pdf_submitted", pdf_ingestion_flow)
 
     # Setup Redis Streams consumer group
     await event_loop.setup()

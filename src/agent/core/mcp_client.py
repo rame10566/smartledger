@@ -153,9 +153,17 @@ class LLASClient:
         return await call_tool(self._url(), "get_account",
                                {"contract_id": contract_id})
 
+    async def get_balance(self, contract_id: str) -> dict:
+        return await call_tool(self._url(), "get_balance",
+                               {"contract_id": contract_id})
+
     async def create_account(self, contract_id: str, account_data: dict) -> dict:
         return await call_tool(self._url(), "create_account",
                                {"contract_id": contract_id, "account_data": account_data})
+
+    async def post_payment(self, contract_id: str, payment_data: dict) -> dict:
+        return await call_tool(self._url(), "post_payment",
+                               {"contract_id": contract_id, "payment_data": payment_data})
 
     async def get_payment_history(self, contract_id: str, limit: int = 12) -> dict:
         return await call_tool(self._url(), "get_payment_history",
@@ -215,9 +223,62 @@ class LedgerClient:
                                {"contract_id": contract_id})
 
 
+class PaymentClient:
+    """MCP client for the Payment simulator (port 8014)."""
+    _url = lambda self: settings.mcp_payment_url
+
+    async def submit_payment(
+        self,
+        contract_id: str,
+        amount: float,
+        payment_method: str,
+        reference: str = "",
+        correlation_id: str = "",
+    ) -> dict:
+        return await call_tool(self._url(), "submit_payment", {
+            "contract_id":    contract_id,
+            "amount":         amount,
+            "payment_method": payment_method,
+            "reference":      reference,
+            "correlation_id": correlation_id,
+        })
+
+    async def get_payment(self, payment_id: str) -> dict:
+        return await call_tool(self._url(), "get_payment",
+                               {"payment_id": payment_id})
+
+    async def get_payments_for_contract(self, contract_id: str, limit: int = 10) -> dict:
+        return await call_tool(self._url(), "get_payments_for_contract",
+                               {"contract_id": contract_id, "limit": limit})
+
+
+class SemanticAIClient:
+    """MCP client for the Semantic AI Engine (port 8003)."""
+    _url = lambda self: settings.mcp_semantic_ai_url
+
+    async def extract_contract_fields(self, document_text: str, document_id: str = "") -> dict:
+        return await call_tool(self._url(), "extract_contract_fields", {
+            "document_text": document_text,
+            "document_id":   document_id,
+        })
+
+    async def get_extraction_result(self, extraction_id: str) -> dict:
+        return await call_tool(self._url(), "get_extraction_result",
+                               {"extraction_id": extraction_id})
+
+    async def submit_for_review(self, extraction_id: str, reason: str = "") -> dict:
+        return await call_tool(self._url(), "submit_for_review",
+                               {"extraction_id": extraction_id, "reason": reason})
+
+    async def list_review_queue(self) -> list:
+        return await call_tool(self._url(), "list_review_queue", {})
+
+
 # ── Module-level singleton clients ────────────────────────────────────────────
 
 oracle_los = OracleLOSClient()
 llas = LLASClient()
 validation = ValidationClient()
 ledger = LedgerClient()
+payment = PaymentClient()
+semantic_ai = SemanticAIClient()

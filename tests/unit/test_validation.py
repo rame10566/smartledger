@@ -393,7 +393,7 @@ class TestValidateEventTool:
         from mcp_servers.validation.server import validate_event
 
         request = _make_origination_request()
-        request["event_envelope"]["event_type"] = "payment.received"
+        request["event_envelope"]["event_type"] = "report.requested"
 
         result = await validate_event(request)
         assert result["valid"] is True

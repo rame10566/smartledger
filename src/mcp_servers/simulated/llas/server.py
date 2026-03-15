@@ -178,6 +178,80 @@ async def get_balance(contract_id: str) -> dict:
 
 
 @mcp.tool()
+async def post_payment(contract_id: str, payment_data: dict) -> dict:
+    """
+    Apply a payment to a LLAS account and update the running balance.
+
+    Required keys in payment_data:
+      - payment_id (str): identifier from the Payment simulator
+      - amount (float): total payment amount collected
+      - payment_date (str): ISO date the payment was applied
+
+    Optional keys:
+      - principal (float): principal portion (defaults to amount)
+      - interest (float): interest portion (defaults to 0.0)
+      - fees (float): fee portion (defaults to 0.0)
+
+    Returns: {success, contract_id, account, is_paid_off}
+    """
+    account = _accounts.get(contract_id)
+    if not account:
+        return {"success": False, "reason": f"No LLAS account for contract '{contract_id}'"}
+
+    required = ["payment_id", "amount", "payment_date"]
+    missing = [f for f in required if f not in payment_data]
+    if missing:
+        raise ValueError(f"Missing required payment_data fields: {missing}")
+
+    amount = float(payment_data["amount"])
+    principal = float(payment_data.get("principal", amount))
+    interest = float(payment_data.get("interest", 0.0))
+    fees = float(payment_data.get("fees", 0.0))
+    payment_id = payment_data["payment_id"]
+    payment_date = payment_data["payment_date"]
+
+    # Update account balance
+    new_balance = max(0.0, account["current_balance"] - principal)
+    account["current_balance"] = round(new_balance, 2)
+    account["total_paid"] = round(account.get("total_paid", 0.0) + amount, 2)
+    account["payments_made"] = account.get("payments_made", 0) + 1
+    account["days_past_due"] = 0  # payment resets delinquency clock
+    account["interest_paid_ytd"] = round(account.get("interest_paid_ytd", 0.0) + interest, 2)
+    account["principal_paid_ytd"] = round(account.get("principal_paid_ytd", 0.0) + principal, 2)
+
+    is_paid_off = new_balance <= 0.0
+    if is_paid_off:
+        account["status"] = "paid_off"
+        account["next_payment_due"] = None
+        account["next_payment_amount"] = 0.0
+    else:
+        account["status"] = "active"
+
+    # Record in payment history
+    if contract_id not in _payment_history:
+        _payment_history[contract_id] = []
+    _payment_history[contract_id].append({
+        "payment_id": payment_id,
+        "amount": amount,
+        "payment_date": payment_date,
+        "principal": principal,
+        "interest": interest,
+        "fees": fees,
+        "status": "applied",
+    })
+
+    logger.info(
+        "llas_payment_posted",
+        contract_id=contract_id,
+        payment_id=payment_id,
+        amount=amount,
+        new_balance=new_balance,
+        is_paid_off=is_paid_off,
+    )
+    return {"success": True, "contract_id": contract_id, "account": account, "is_paid_off": is_paid_off}
+
+
+@mcp.tool()
 async def create_account(contract_id: str, account_data: dict) -> dict:
     """
     Create a new LLAS account for a contract that has just been originated and

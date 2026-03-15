@@ -102,6 +102,28 @@ _SEED_RULES: list[dict[str, Any]] = [
         "description": "VIN in event payload must match VIN in Oracle LOS contract record",
         "config": {"check": "vin_match_oracle_los"},
     },
+    # ── Payment rules ─────────────────────────────────────────────────────────
+    {
+        "rule_id": "RULE-PAY-AMT",
+        "rule_type": "business",
+        "event_type": "payment.received",
+        "description": "Payment amount must be greater than zero",
+        "config": {"field": "amount", "min_exclusive": 0},
+    },
+    {
+        "rule_id": "RULE-PAY-STATE",
+        "rule_type": "cross_system",
+        "event_type": "payment.received",
+        "description": "Payments can only be applied to active or delinquent contracts",
+        "config": {"check": "contract_state_payable"},
+    },
+    {
+        "rule_id": "RULE-PAY-ACCT",
+        "rule_type": "cross_system",
+        "event_type": "payment.received",
+        "description": "A LLAS account must exist before a payment can be posted",
+        "config": {"check": "llas_account_exists"},
+    },
 ]
 
 
@@ -151,15 +173,18 @@ mcp = FastMCP(
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
 async def _seed_rules_if_empty() -> None:
-    """Seed validation rules on first startup if the table is empty."""
+    """Seed all validation rules using INSERT ... ON CONFLICT DO NOTHING.
+
+    Runs on every startup — safe to re-run because new rules are inserted
+    idempotently. This ensures payment rules are added even if origination
+    rules were already seeded in a prior run.
+    """
     if not _pool:
         return
+    inserted = 0
     async with _pool.acquire() as conn:
-        count = await conn.fetchval("SELECT COUNT(*) FROM validation.rules WHERE active = TRUE")
-        if count and count > 0:
-            return
         for rule in _SEED_RULES:
-            await conn.execute(
+            result = await conn.execute(
                 """
                 INSERT INTO validation.rules (rule_id, rule_type, event_type, description, config, version, active)
                 VALUES ($1, $2, $3, $4, $5::jsonb, 1, TRUE)
@@ -171,7 +196,10 @@ async def _seed_rules_if_empty() -> None:
                 rule["description"],
                 json.dumps(rule["config"]),
             )
-        logger.info("validation_rules_seeded", count=len(_SEED_RULES))
+            if result == "INSERT 0 1":
+                inserted += 1
+    if inserted:
+        logger.info("validation_rules_seeded", inserted=inserted, total=len(_SEED_RULES))
 
 
 async def _quarantine_event(
@@ -262,6 +290,73 @@ def _get_nested(data: dict, dotted_path: str) -> Any:
             return None
         val = val.get(key)
     return val
+
+
+def _validate_payment(
+    payload: dict[str, Any],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Validate a payment.received / customer.payment_submitted / ivr.payment_submitted event.
+
+    Rules:
+      RULE-PAY-AMT   — payment amount must be > 0
+      RULE-PAY-STATE — contract state must be active or delinquent
+      RULE-PAY-ACCT  — LLAS account must exist
+    """
+    failures: list[dict[str, Any]] = []
+
+    # RULE-PAY-AMT: amount > 0
+    amount = payload.get("amount")
+    try:
+        if amount is None or float(amount) <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        failures.append({
+            "rule_id": "RULE-PAY-AMT",
+            "rule_type": "business",
+            "code": "INVALID_PAYMENT_AMOUNT",
+            "message": f"Payment amount must be greater than zero (got {amount})",
+            "field": "amount",
+            "expected": "> 0",
+            "actual": amount,
+        })
+
+    # RULE-PAY-STATE: contract state must be active or delinquent
+    ledger_state = context.get("ledger_state", {})
+    current_state = ledger_state.get("current_state")
+    _PAYABLE_STATES = {"active", "delinquent", "originated"}
+    if current_state and current_state not in _PAYABLE_STATES:
+        failures.append({
+            "rule_id": "RULE-PAY-STATE",
+            "rule_type": "cross_system",
+            "code": "CONTRACT_NOT_PAYABLE",
+            "message": (
+                f"Payments cannot be applied to a contract in state '{current_state}'. "
+                f"Contract must be active or delinquent."
+            ),
+            "field": "contract_state",
+            "expected": str(_PAYABLE_STATES),
+            "actual": current_state,
+        })
+
+    # RULE-PAY-ACCT: LLAS account must exist
+    llas_account = context.get("llas_account", {})
+    if llas_account and llas_account.get("found") is False:
+        failures.append({
+            "rule_id": "RULE-PAY-ACCT",
+            "rule_type": "cross_system",
+            "code": "NO_LLAS_ACCOUNT",
+            "message": (
+                f"No LLAS account found for contract '{payload.get('contract_id')}'. "
+                "Cannot post payment without an active accounting record."
+            ),
+            "field": "llas_account",
+            "expected": "existing LLAS account",
+            "actual": "not found",
+        })
+
+    return failures
 
 
 def _validate_origination(
@@ -453,8 +548,16 @@ async def validate_event(request: dict) -> dict:
     failures: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
+    _PAYMENT_EVENT_TYPES = {
+        EventType.PAYMENT_RECEIVED,
+        EventType.CUSTOMER_PAYMENT_SUBMITTED,
+        EventType.IVR_PAYMENT_SUBMITTED,
+    }
+
     if event_type == EventType.CONTRACT_ORIGINATED:
         failures = _validate_origination(payload, context)
+    elif event_type in _PAYMENT_EVENT_TYPES:
+        failures = _validate_payment(payload, context)
     else:
         # For event types not yet implemented, warn but don't block
         warnings.append({
