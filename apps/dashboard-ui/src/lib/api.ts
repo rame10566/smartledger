@@ -118,3 +118,68 @@ export async function getLifecycle(contractId: string): Promise<Lifecycle> {
 export async function getAuditTrail(contractId: string): Promise<AuditEntry[]> {
   return apiFetch<AuditEntry[]>(`/contracts/${contractId}/audit`);
 }
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+export interface ReportType {
+  type:                 string;
+  title:                string;
+  description:          string;
+  supports_date_filter: boolean;
+}
+
+export interface ReportSummary {
+  report_id:    string;
+  report_type:  string;
+  title:        string;
+  status:       "pending" | "completed" | "failed";
+  requested_by: string | null;
+  created_at:   string;
+  completed_at: string | null;
+}
+
+export interface Report extends ReportSummary {
+  parameters: Record<string, unknown>;
+  result:     Record<string, unknown>;
+}
+
+export interface ReportExport {
+  report_id:    string;
+  format:       string;
+  content_type: string;
+  data:         string;
+}
+
+export async function listReportTypes(): Promise<ReportType[]> {
+  return apiFetch<ReportType[]>("/reports/types");
+}
+
+export async function listReports(reportType?: string): Promise<ReportSummary[]> {
+  const qs = reportType ? `?report_type=${reportType}` : "";
+  return apiFetch<ReportSummary[]>(`/reports${qs}`);
+}
+
+export async function generateReport(
+  reportType:   string,
+  dateFrom?:    string,
+  dateTo?:      string,
+  requestedBy?: string,
+): Promise<Report> {
+  return apiFetch<Report>("/reports/generate", {
+    method: "POST",
+    body:   JSON.stringify({
+      report_type:  reportType,
+      date_from:    dateFrom,
+      date_to:      dateTo,
+      requested_by: requestedBy ?? "dashboard",
+    }),
+  });
+}
+
+export async function getReport(reportId: string): Promise<Report> {
+  return apiFetch<Report>(`/reports/${reportId}`);
+}
+
+export async function exportReport(reportId: string, format = "json"): Promise<ReportExport> {
+  return apiFetch<ReportExport>(`/reports/${reportId}/export?format=${format}`);
+}

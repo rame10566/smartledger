@@ -33,6 +33,12 @@ export default function RootLayout({
             >
               Contracts
             </Link>
+            <Link
+              href="/reports"
+              className="text-blue-100 hover:text-white text-sm font-medium"
+            >
+              Reports
+            </Link>
           </div>
         </nav>
 

@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
 
-from dashboard_api.routers import contracts, quarantine
+from dashboard_api.routers import contracts, quarantine, reports
 
 settings = get_settings()
 configure_logging(service_name="dashboard-api", log_level=settings.log_level)
@@ -82,6 +82,7 @@ app.add_middleware(
 
 app.include_router(quarantine.router, prefix="/api")
 app.include_router(contracts.router,  prefix="/api")
+app.include_router(reports.router,    prefix="/api")
 
 
 @app.get("/api/health")

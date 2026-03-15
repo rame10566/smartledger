@@ -37,6 +37,7 @@ from mcp.server.fastmcp import FastMCP
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
+from mcp_servers.ledger.fabric_client import FabricClient, create_fabric_client_from_settings
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -47,13 +48,14 @@ logger = get_logger(__name__)
 # ─── Module-level state ───────────────────────────────────────────────────────
 
 _pool: asyncpg.Pool | None = None
+_fabric: FabricClient | None = None
 
 
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    global _pool
+    global _pool, _fabric
     try:
         _pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=10)
         logger.info(
@@ -64,9 +66,34 @@ async def lifespan(server: FastMCP):
     except Exception as e:
         logger.error("ledger_db_connection_failed", error=str(e))
 
+    # Phase 1+: initialise Fabric client
+    if not settings.write_guard:
+        _fabric = create_fabric_client_from_settings(settings)
+        if _fabric:
+            try:
+                await _fabric.connect()
+                logger.info(
+                    "fabric_client_connected",
+                    peer=settings.fabric_peer_endpoint,
+                    channel=settings.fabric_channel,
+                )
+            except Exception as e:
+                logger.error("fabric_client_connect_failed", error=str(e))
+                _fabric = None
+        else:
+            logger.warning(
+                "write_guard_off_but_fabric_not_configured",
+                hint="Fabric writes disabled — set FABRIC_PEER_ENDPOINT, FABRIC_CERT_PATH, etc.",
+            )
+
     try:
         yield
     finally:
+        if _fabric:
+            try:
+                await _fabric.close()
+            except Exception:
+                pass
         if _pool:
             await _pool.close()
         logger.info("ledger_shutdown")
@@ -265,12 +292,44 @@ async def write_record(record: dict, proof_token: str) -> dict:
 
     # Phase 1+: submit to Fabric (write_guard=False)
     if not settings.write_guard:
-        logger.warning(
-            "fabric_write_not_implemented",
-            contract_id=contract_id,
-            note="Phase 1+ Fabric writes not yet wired — PostgreSQL only for now",
-        )
-        # TODO Phase 1: submit_to_fabric(record, data_hash) → fabric_tx_id
+        if _fabric:
+            try:
+                fabric_tx_id = await _fabric.write_record(
+                    record_id=record_id,
+                    contract_id=contract_id,
+                    record_type=record_type,
+                    data_hash=data_hash,
+                    payload=record_payload,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+                # Back-fill fabric_tx_id in PostgreSQL
+                async with _pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE contracts.records SET fabric_tx_id = $1 WHERE record_id = $2::uuid",
+                        fabric_tx_id,
+                        record_id,
+                    )
+                logger.info(
+                    "fabric_record_written",
+                    record_id=record_id,
+                    contract_id=contract_id,
+                    fabric_tx_id=fabric_tx_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "fabric_write_failed",
+                    record_id=record_id,
+                    contract_id=contract_id,
+                    error=str(e),
+                )
+                # Non-fatal: PostgreSQL write already committed above.
+                # Fabric write will be retried via reconciliation in Phase 2+.
+        else:
+            logger.warning(
+                "write_guard_off_fabric_unavailable",
+                record_id=record_id,
+                hint="Fabric client not connected — PostgreSQL-only write committed",
+            )
 
     logger.info(
         "record_written",
@@ -558,6 +617,33 @@ async def execute_state_transition(
             )
 
     transitioned_at = datetime.now(timezone.utc).isoformat()
+    fabric_tx_id: str | None = None
+
+    # Phase 1+: submit state transition to Fabric
+    if not settings.write_guard and _fabric:
+        try:
+            fabric_tx_id = await _fabric.execute_state_transition(
+                contract_id=contract_id,
+                new_state=new_state,
+                trigger_event_id=trigger_event_id,
+                saga_id=saga_id or "",
+                timestamp=transitioned_at,
+            )
+            logger.info(
+                "fabric_state_transition_committed",
+                contract_id=contract_id,
+                new_state=new_state,
+                fabric_tx_id=fabric_tx_id,
+            )
+        except Exception as e:
+            logger.error(
+                "fabric_state_transition_failed",
+                contract_id=contract_id,
+                new_state=new_state,
+                error=str(e),
+            )
+            # Non-fatal: PostgreSQL is source of truth for Phase 1 POC
+
     logger.info(
         "state_transitioned",
         contract_id=contract_id,
@@ -571,6 +657,7 @@ async def execute_state_transition(
         "previous_state": previous_state,
         "new_state": new_state,
         "transitioned_at": transitioned_at,
+        "fabric_tx_id": fabric_tx_id,
         "write_guard_active": settings.write_guard,
     }
 

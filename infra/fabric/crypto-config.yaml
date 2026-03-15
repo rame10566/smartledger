@@ -1,0 +1,28 @@
+# crypto-config.yaml
+# Defines the crypto material for the SmartLedger Fabric network.
+# Single org (SmartLedgerOrg), single peer, Raft orderer.
+#
+# Generate with:
+#   cryptogen generate --config=./crypto-config.yaml --output=./crypto-material
+
+OrdererOrgs:
+  - Name: Orderer
+    Domain: orderer.smartledger.local
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS:
+          - localhost
+          - 127.0.0.1
+
+PeerOrgs:
+  - Name: SmartLedgerOrg
+    Domain: org1.smartledger.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+        - 127.0.0.1
+    Users:
+      Count: 1

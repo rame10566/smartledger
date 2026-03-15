@@ -274,11 +274,46 @@ class SemanticAIClient:
         return await call_tool(self._url(), "list_review_queue", {})
 
 
+class ReportingClient:
+    """MCP client for the Reporting MCP server (port 8004)."""
+    _url = lambda self: settings.mcp_reporting_url
+
+    async def generate_report(
+        self,
+        report_type: str,
+        filters: dict | None = None,
+        requested_by: str = "dashboard",
+    ) -> dict:
+        return await call_tool(self._url(), "generate_report", {
+            "report_type":  report_type,
+            "filters":      filters or {},
+            "requested_by": requested_by,
+        })
+
+    async def list_reports(
+        self,
+        limit: int = 20,
+        report_type: str | None = None,
+    ) -> list:
+        args: dict[str, Any] = {"limit": limit}
+        if report_type:
+            args["report_type"] = report_type
+        return await call_tool(self._url(), "list_reports", args)
+
+    async def get_report(self, report_id: str) -> dict:
+        return await call_tool(self._url(), "get_report", {"report_id": report_id})
+
+    async def export_report(self, report_id: str, format: str = "json") -> dict:  # noqa: A002
+        return await call_tool(self._url(), "export_report",
+                               {"report_id": report_id, "format": format})
+
+
 # ── Module-level singleton clients ────────────────────────────────────────────
 
-oracle_los = OracleLOSClient()
-llas = LLASClient()
-validation = ValidationClient()
-ledger = LedgerClient()
-payment = PaymentClient()
+oracle_los  = OracleLOSClient()
+llas        = LLASClient()
+validation  = ValidationClient()
+ledger      = LedgerClient()
+payment     = PaymentClient()
 semantic_ai = SemanticAIClient()
+reporting   = ReportingClient()

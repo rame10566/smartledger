@@ -1,0 +1,142 @@
+# configtx.yaml
+# Channel and genesis block configuration for the SmartLedger Fabric network.
+#
+# Single org: SmartLedgerOrg
+# Channel:    smartledger-channel
+# Chaincode:  smartledger-cc
+#
+# Generate artifacts with:
+#   configtxgen -profile SmartLedgerGenesis -channelID system-channel -outputBlock ./artifacts/genesis.block
+#   configtxgen -profile SmartLedgerChannel -channelID smartledger-channel -outputCreateChannelTx ./artifacts/channel.tx
+
+Organizations:
+  - &OrdererOrg
+    Name: OrdererOrg
+    ID: OrdererMSP
+    MSPDir: ./crypto-material/ordererOrganizations/orderer.smartledger.local/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrdererMSP.admin')"
+
+  - &SmartLedgerOrg
+    Name: SmartLedgerOrg
+    ID: SmartLedgerOrgMSP
+    MSPDir: ./crypto-material/peerOrganizations/org1.smartledger.local/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('SmartLedgerOrgMSP.admin', 'SmartLedgerOrgMSP.peer', 'SmartLedgerOrgMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('SmartLedgerOrgMSP.admin', 'SmartLedgerOrgMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('SmartLedgerOrgMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('SmartLedgerOrgMSP.peer')"
+    AnchorPeers:
+      - Host: peer0.org1.smartledger.local
+        Port: 7051
+
+Capabilities:
+  Channel: &ChannelCapabilities
+    V2_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_5: true
+
+Application: &ApplicationDefaults
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    LifecycleEndorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+    Endorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+  Capabilities:
+    <<: *ApplicationCapabilities
+
+Orderer: &OrdererDefaults
+  OrdererType: etcdraft
+  Addresses:
+    - orderer.smartledger.local:7050
+  EtcdRaft:
+    Consenters:
+      - Host: orderer.smartledger.local
+        Port: 7050
+        ClientTLSCert: ./crypto-material/ordererOrganizations/orderer.smartledger.local/orderers/orderer.orderer.smartledger.local/tls/server.crt
+        ServerTLSCert: ./crypto-material/ordererOrganizations/orderer.smartledger.local/orderers/orderer.orderer.smartledger.local/tls/server.crt
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    BlockValidation:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+  Capabilities:
+    <<: *OrdererCapabilities
+
+Channel: &ChannelDefaults
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+  Capabilities:
+    <<: *ChannelCapabilities
+
+Profiles:
+  SmartLedgerGenesis:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+    Consortiums:
+      SmartLedgerConsortium:
+        Organizations:
+          - *SmartLedgerOrg
+
+  SmartLedgerChannel:
+    Consortium: SmartLedgerConsortium
+    <<: *ChannelDefaults
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *SmartLedgerOrg

@@ -1,0 +1,15 @@
+{
+  "name": "smartledger-cc",
+  "version": "1.0.0",
+  "description": "SmartLedger Hyperledger Fabric chaincode — immutable auto-finance ledger",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "fabric-shim": "^2.2.3"
+  }
+}
