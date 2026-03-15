@@ -41,9 +41,13 @@ class Settings(BaseSettings):
     mcp_mobile_app_url: str = "http://localhost:8018"
     mcp_ivr_url: str = "http://localhost:8019"
 
-    # ─── JWT ──────────────────────────────────────────────────────────────────
+    # ─── JWT (agent session tokens) ───────────────────────────────────────────
     jwt_secret: str = "change-me-in-production"
     jwt_expiry_seconds: int = 3600
+
+    # ─── Validation Proof Tokens (single-use, 60s, Validation Engine → Ledger)
+    proof_token_secret: str = "change-me-proof-token-secret"
+    proof_token_expiry_seconds: int = 60
 
     # ─── Hyperledger Fabric ───────────────────────────────────────────────────
     fabric_peer_endpoint: str = ""

@@ -224,3 +224,60 @@ CREATE TABLE IF NOT EXISTS extraction.results (
 CREATE INDEX IF NOT EXISTS idx_extraction_contract ON extraction.results(contract_id);
 CREATE INDEX IF NOT EXISTS idx_extraction_review ON extraction.results(review_status)
     WHERE review_status = 'pending';
+
+-- ─── Seed Data: Validation Rules ──────────────────────────────────────────────
+-- These are the active rules used by the Validation Engine for Phase 0.
+-- The validation server will also seed these on startup if the table is empty,
+-- so this block is a safety net for fresh DB initialisation.
+
+INSERT INTO validation.rules (rule_id, rule_type, event_type, description, config, version, active)
+VALUES
+    (
+        'RULE-SCHEMA-VIN', 'schema', 'contract.originated',
+        'VIN must be exactly 17 characters [A-HJ-NPR-Z0-9] (no I, O, or Q)',
+        '{"field": "vehicle.vin", "pattern": "^[A-HJ-NPR-Z0-9]{17}$"}',
+        1, TRUE
+    ),
+    (
+        'RULE-BIZ-AMT-POS', 'business', 'contract.originated',
+        'Amount financed must be greater than zero',
+        '{"field": "financial_terms.amount_financed", "min_exclusive": 0}',
+        1, TRUE
+    ),
+    (
+        'RULE-BIZ-TERM', 'business', 'contract.originated',
+        'Term months must be between 1 and 84',
+        '{"field": "financial_terms.term_months", "min": 1, "max": 84}',
+        1, TRUE
+    ),
+    (
+        'RULE-BIZ-RATE', 'business', 'contract.originated',
+        'Interest rate must be between 0% and 36% APR',
+        '{"field": "financial_terms.interest_rate", "min": 0, "max": 36}',
+        1, TRUE
+    ),
+    (
+        'RULE-BIZ-PMT', 'business', 'contract.originated',
+        'Monthly payment must be greater than zero',
+        '{"field": "financial_terms.monthly_payment", "min_exclusive": 0}',
+        1, TRUE
+    ),
+    (
+        'RULE-BIZ-DEALER', 'business', 'contract.originated',
+        'Dealer ID is required and cannot be empty',
+        '{"field": "dealer_id", "required": true}',
+        1, TRUE
+    ),
+    (
+        'RULE-XSYS-LOS-VIN', 'cross_system', 'contract.originated',
+        'VIN in event payload must match VIN in Oracle LOS contract record',
+        '{"check": "vin_match_oracle_los"}',
+        1, TRUE
+    ),
+    (
+        'RULE-XSYS-LLAS-NEW', 'cross_system', 'contract.originated',
+        'No LLAS account should exist for a newly originated contract',
+        '{"check": "no_existing_llas_account"}',
+        1, TRUE
+    )
+ON CONFLICT (rule_id, version) DO NOTHING;

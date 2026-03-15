@@ -10,3 +10,10 @@ dependencies = [
     "structlog>=24.0",
     "pyjwt>=2.8",
 ]
+
+# Tell setuptools: look one level up (in src/) and include only the 'shared' package tree.
+# This avoids the flat-layout "multiple top-level packages" error caused by models/ and schemas/
+# sitting at the same level without an explicit package-dir mapping.
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["shared", "shared.*"]
