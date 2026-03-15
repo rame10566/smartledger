@@ -880,4 +880,6 @@ async def get_rejection_log(contract_id: str | None = None) -> list[dict]:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8001)
+    mcp.settings.host = "0.0.0.0"
+    mcp.settings.port = 8001
+    mcp.run(transport="streamable-http")

@@ -647,5 +647,6 @@ async def export_report(
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(mcp.run())
+    mcp.settings.host = "0.0.0.0"
+    mcp.settings.port = 8004
+    mcp.run(transport="streamable-http")

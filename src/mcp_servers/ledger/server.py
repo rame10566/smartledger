@@ -796,4 +796,6 @@ async def get_governance_rules() -> dict:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8002)
+    mcp.settings.host = "0.0.0.0"
+    mcp.settings.port = 8002
+    mcp.run(transport="streamable-http")

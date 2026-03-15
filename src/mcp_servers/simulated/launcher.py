@@ -23,54 +23,31 @@ import sys
 import time
 
 
-def _run_oracle_los() -> None:
-    from mcp_servers.simulated.oracle_los.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8010)
+def _run_server(module_path: str, port: int) -> None:
+    """
+    Run a single FastMCP server on the given port.
+
+    Imports the server module, overrides host/port on mcp.settings,
+    then starts the server. Each call runs in its own subprocess so
+    there is no cross-contamination between servers.
+    """
+    pkg = __import__(module_path, fromlist=["mcp"])
+    mcp = pkg.mcp
+    mcp.settings.host = "0.0.0.0"
+    mcp.settings.port = port
+    mcp.run(transport="streamable-http")
 
 
-def _run_salesforce_los() -> None:
-    from mcp_servers.simulated.salesforce_los.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8011)
-
-
-def _run_llas() -> None:
-    from mcp_servers.simulated.llas.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8012)
-
-
-def _run_crm() -> None:
-    from mcp_servers.simulated.crm.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8013)
-
-
-def _run_payment() -> None:
-    from mcp_servers.simulated.payment.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8014)
-
-
-def _run_insurance() -> None:
-    from mcp_servers.simulated.insurance.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8015)
-
-
-def _run_dealer() -> None:
-    from mcp_servers.simulated.dealer.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8016)
-
-
-def _run_customer_portal() -> None:
-    from mcp_servers.simulated.customer_portal.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8017)
-
-
-def _run_mobile_app() -> None:
-    from mcp_servers.simulated.mobile_app.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8018)
-
-
-def _run_ivr() -> None:
-    from mcp_servers.simulated.ivr.server import mcp
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8019)
+def _run_oracle_los()      -> None: _run_server("mcp_servers.simulated.oracle_los.server",      8010)
+def _run_salesforce_los()  -> None: _run_server("mcp_servers.simulated.salesforce_los.server",  8011)
+def _run_llas()            -> None: _run_server("mcp_servers.simulated.llas.server",            8012)
+def _run_crm()             -> None: _run_server("mcp_servers.simulated.crm.server",             8013)
+def _run_payment()         -> None: _run_server("mcp_servers.simulated.payment.server",         8014)
+def _run_insurance()       -> None: _run_server("mcp_servers.simulated.insurance.server",       8015)
+def _run_dealer()          -> None: _run_server("mcp_servers.simulated.dealer.server",          8016)
+def _run_customer_portal() -> None: _run_server("mcp_servers.simulated.customer_portal.server", 8017)
+def _run_mobile_app()      -> None: _run_server("mcp_servers.simulated.mobile_app.server",      8018)
+def _run_ivr()             -> None: _run_server("mcp_servers.simulated.ivr.server",             8019)
 
 
 _SERVERS = [

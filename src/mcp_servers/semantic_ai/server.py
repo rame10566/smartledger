@@ -375,4 +375,6 @@ async def ping() -> dict:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8003)
+    mcp.settings.host = "0.0.0.0"
+    mcp.settings.port = 8003
+    mcp.run(transport="streamable-http")
