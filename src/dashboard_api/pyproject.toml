@@ -9,7 +9,9 @@ dependencies = [
     "asyncpg>=0.29",
     "mcp>=1.7.1",
     "smartledger-shared",
+    "smartledger-agent",
 ]
 
 [tool.uv.sources]
 smartledger-shared = { workspace = true }
+smartledger-agent  = { workspace = true }

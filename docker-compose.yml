@@ -174,6 +174,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
       - MCP_LEDGER_URL=http://mcp-ledger:8002
+      - MCP_VALIDATION_URL=http://mcp-validation:8001
+      - MCP_REPORTING_URL=http://mcp-reporting:8004
       - SERVICE_NAME=dashboard-api
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -190,7 +192,8 @@ services:
       dockerfile: Dockerfile
     container_name: smartledger-dashboard-ui
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # Server-side rewrite target — use Docker service name, not localhost
+      - API_URL=http://dashboard-api:8000
     ports:
       - "3000:3000"
     depends_on:
