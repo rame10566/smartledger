@@ -37,6 +37,7 @@ from shared.logging import configure_logging, get_logger
 from agent.core.event_loop import AgentEventLoop
 from agent.core.saga import SagaManager
 from agent.flows.origination import OriginationFlow
+from agent.flows.override import OverrideFlow
 
 settings = get_settings()
 configure_logging(service_name="smartledger-agent", log_level=settings.log_level)
@@ -113,6 +114,9 @@ async def main() -> None:
     # Register flow handlers (add more here as new event types are implemented)
     origination_flow = OriginationFlow()
     event_loop.register_flow("contract.originated", origination_flow)
+
+    override_flow = OverrideFlow()
+    event_loop.register_flow("quarantine.approved", override_flow)
 
     # Setup Redis Streams consumer group
     await event_loop.setup()
