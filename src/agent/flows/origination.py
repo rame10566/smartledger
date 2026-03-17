@@ -154,6 +154,19 @@ class OriginationFlow:
             status="in_progress",
         )
 
+        # Build contract parties list (PBAC-01: every contract records its parties)
+        customer_id = payload.get("customer", {}).get("customer_id") or payload.get("customer_id", "")
+        dealer_id = payload.get("dealer_id", "")
+        contract_type = payload.get("contract_type", "loan")
+        parties = [
+            {"party_role": "borrower" if contract_type == "loan" else "lessee",
+             "entity_type": "customer", "entity_id": customer_id},
+            {"party_role": "lender" if contract_type == "loan" else "lessor",
+             "entity_type": "organization", "entity_id": "SMARTLEDGER_FINANCE"},
+        ]
+        if dealer_id:
+            parties.append({"party_role": "dealer", "entity_type": "dealer", "entity_id": dealer_id})
+
         origination_record: dict[str, Any] = {
             "contract_id":   contract_id,
             "record_type":   "origination",
@@ -162,6 +175,7 @@ class OriginationFlow:
             "source_system": source_system,
             "contract_data": payload,
             "los_contract":  los_contract,
+            "parties":       parties,
         }
 
         write_result = await ledger.write_record(

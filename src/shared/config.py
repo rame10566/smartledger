@@ -24,22 +24,23 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-3-5-sonnet-20241022"
 
     # ─── MCP Server URLs ──────────────────────────────────────────────────────
-    mcp_validation_url: str = "http://localhost:8001"
-    mcp_ledger_url: str = "http://localhost:8002"
-    mcp_semantic_ai_url: str = "http://localhost:8003"
-    mcp_reporting_url: str = "http://localhost:8004"
+    # FastMCP serves at /mcp — all URLs must include the /mcp path suffix.
+    mcp_validation_url: str = "http://localhost:8001/mcp"
+    mcp_ledger_url: str = "http://localhost:8002/mcp"
+    mcp_semantic_ai_url: str = "http://localhost:8003/mcp"
+    mcp_reporting_url: str = "http://localhost:8004/mcp"
 
     # Simulated systems
-    mcp_oracle_los_url: str = "http://localhost:8010"
-    mcp_salesforce_los_url: str = "http://localhost:8011"
-    mcp_llas_url: str = "http://localhost:8012"
-    mcp_crm_url: str = "http://localhost:8013"
-    mcp_payment_url: str = "http://localhost:8014"
-    mcp_insurance_url: str = "http://localhost:8015"
-    mcp_dealer_url: str = "http://localhost:8016"
-    mcp_customer_portal_url: str = "http://localhost:8017"
-    mcp_mobile_app_url: str = "http://localhost:8018"
-    mcp_ivr_url: str = "http://localhost:8019"
+    mcp_oracle_los_url: str = "http://localhost:8010/mcp"
+    mcp_salesforce_los_url: str = "http://localhost:8011/mcp"
+    mcp_llas_url: str = "http://localhost:8012/mcp"
+    mcp_crm_url: str = "http://localhost:8013/mcp"
+    mcp_payment_url: str = "http://localhost:8014/mcp"
+    mcp_insurance_url: str = "http://localhost:8015/mcp"
+    mcp_dealer_url: str = "http://localhost:8016/mcp"
+    mcp_customer_portal_url: str = "http://localhost:8017/mcp"
+    mcp_mobile_app_url: str = "http://localhost:8018/mcp"
+    mcp_ivr_url: str = "http://localhost:8019/mcp"
 
     # ─── JWT (agent session tokens) ───────────────────────────────────────────
     jwt_secret: str = "change-me-in-production"
@@ -48,6 +49,10 @@ class Settings(BaseSettings):
     # ─── Validation Proof Tokens (single-use, 60s, Validation Engine → Ledger)
     proof_token_secret: str = "change-me-proof-token-secret"
     proof_token_expiry_seconds: int = 60
+
+    # ─── Party-Based Access Control (Smart Data Gateway — Section 6.5) ──────
+    pbac_enabled: bool = True             # Feature flag for party-based access control
+    dashboard_jwt_secret: str = "change-me-dashboard-jwt-secret"  # JWT verification for Dashboard API
 
     # ─── Hyperledger Fabric ───────────────────────────────────────────────────
     # Network config

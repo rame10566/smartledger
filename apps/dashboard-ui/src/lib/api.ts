@@ -1,9 +1,51 @@
 /**
  * API client helpers — thin wrappers around fetch that talk to the
  * Dashboard API (proxied via Next.js rewrites → http://localhost:8000/api).
+ *
+ * Smart Data Gateway identity is sent via X-SmartLedger-Identity header
+ * on every request (Section 6.5).
  */
 
 const BASE = "/api";
+
+// ── Identity Management (Smart Data Gateway — Section 6.5.2) ──────────────
+
+export interface Identity {
+  actor_id:         string;
+  actor_type:       "user" | "service" | "agent";
+  role?:            "admin" | "auditor" | "operator" | "compliance";
+  party_entity_id?: string;
+  party_role?:      "borrower" | "lessee" | "dealer" | "servicer" | "insurer";
+  label:            string;  // human-readable display name
+}
+
+/** Pre-configured demo identities for the POC identity selector */
+export const DEMO_IDENTITIES: Identity[] = [
+  { actor_id: "admin-001",      actor_type: "user", role: "admin",      label: "Admin (full access)" },
+  { actor_id: "auditor-001",    actor_type: "user", role: "auditor",    label: "Auditor (read-only, all contracts)" },
+  { actor_id: "operator-001",   actor_type: "user", role: "operator",   label: "Operator (quarantine queue)" },
+  { actor_id: "compliance-001", actor_type: "user", role: "compliance", label: "Compliance (full access)" },
+  { actor_id: "borrower-CUST-001", actor_type: "user", party_entity_id: "CUST-001", party_role: "borrower", label: "Borrower (CUST-001)" },
+  { actor_id: "dealer-DLR-042",    actor_type: "user", party_entity_id: "DLR-042",  party_role: "dealer",   label: "Dealer (DLR-042)" },
+];
+
+// Current identity — defaults to admin for backward compatibility
+let _currentIdentity: Identity = DEMO_IDENTITIES[0];
+
+export function getCurrentIdentity(): Identity {
+  return _currentIdentity;
+}
+
+export function setCurrentIdentity(identity: Identity): void {
+  _currentIdentity = identity;
+}
+
+function identityHeader(): Record<string, string> {
+  const { label, ...payload } = _currentIdentity;
+  return { "X-SmartLedger-Identity": JSON.stringify(payload) };
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface QuarantineRecord {
   event_id:         string;
@@ -62,6 +104,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...identityHeader(),
       ...(options?.headers ?? {}),
     },
   });
@@ -84,13 +127,18 @@ export async function getQuarantineRecord(eventId: string): Promise<QuarantineRe
 }
 
 export async function approveOverride(
-  eventId:  string,
-  reason:   string,
-  reviewer: string,
+  eventId:      string,
+  reason:       string,
+  reviewer:     string,
+  corrections?: Record<string, unknown>,
 ): Promise<{ success: boolean; contract_id: string }> {
+  const payload: Record<string, unknown> = { reason, reviewer };
+  if (corrections && Object.keys(corrections).length > 0) {
+    payload.corrections = corrections;
+  }
   return apiFetch(`/quarantine/${eventId}/approve`, {
     method: "POST",
-    body:   JSON.stringify({ reason, reviewer }),
+    body:   JSON.stringify(payload),
   });
 }
 

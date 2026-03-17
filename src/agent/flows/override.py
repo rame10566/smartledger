@@ -63,6 +63,9 @@ class OverrideFlow:
         override_reason   = payload.get("override_reason", "No reason provided")
         reviewed_by       = payload.get("reviewed_by", "unknown")
         original_payload  = payload.get("original_payload", {})
+        corrections       = payload.get("corrections", {})
+        corrected_payload = payload.get("corrected_payload", original_payload)
+        has_corrections   = bool(corrections)
 
         logger.info(
             "override_flow_started",
@@ -71,6 +74,7 @@ class OverrideFlow:
             original_event_id=original_event_id,
             reviewed_by=reviewed_by,
             saga_id=saga.saga_id,
+            has_corrections=has_corrections,
         )
 
         # ── Step 1: Gather cross-system context ───────────────────────────────
@@ -123,27 +127,30 @@ class OverrideFlow:
             original_failure_count=len(original_failures),
         )
 
-        # ── Step 2: Get proof token via Validation Engine ─────────────────────
-        # Event type "quarantine.approved" bypasses business rules in the
-        # Validation Engine (passes through the else-branch) and issues a
-        # proof token. This is the designed behaviour — the human's approval
-        # is the authorisation.
+        # ── Step 2: Validate corrected data and get proof token ───────────────
+        # If corrections were provided, re-validate the corrected payload through
+        # the standard origination rules (contract.originated). The corrected data
+        # must pass validation before being written to the ledger.
+        # If no corrections, fall back to quarantine.approved passthrough.
         await saga.checkpoint(
             SagaStep.VALIDATED,
-            payload={"status": "getting_override_proof_token"},
+            payload={"status": "validating_corrected_data", "has_corrections": has_corrections},
             status="in_progress",
         )
+
+        # Use corrected payload for the validation request
+        validation_event_type = "contract.originated" if has_corrections else event["event_type"]
 
         validation_request: dict[str, Any] = {
             "event_envelope": {
                 "event_id":       event_id,
-                "event_type":     event["event_type"],  # "quarantine.approved"
+                "event_type":     validation_event_type,
                 "source_system":  source_system,
                 "contract_id":    contract_id,
                 "timestamp":      timestamp,
                 "correlation_id": correlation_id,
                 "schema_version": schema_version,
-                "payload":        payload,
+                "payload":        corrected_payload,
             },
             "saga_id": saga.saga_id,
             "context": context,
@@ -152,17 +159,16 @@ class OverrideFlow:
         validation_result = await validation.validate_event(validation_request)
 
         if not validation_result.get("valid", False):
-            # This should not happen for quarantine.approved events.
-            # If it does, something is wrong with the validation server.
             failures = validation_result.get("failures", [])
             logger.error(
-                "override_validation_unexpectedly_failed",
+                "override_corrected_data_failed_validation",
                 contract_id=contract_id,
                 event_id=event_id,
                 failures=failures,
+                has_corrections=has_corrections,
             )
             await saga.fail(
-                f"Override validation unexpectedly failed: {failures}",
+                f"Corrected data still fails validation: {failures}",
                 step=SagaStep.VALIDATED,
             )
             return
@@ -187,6 +193,20 @@ class OverrideFlow:
             status="in_progress",
         )
 
+        # Build contract parties list (PBAC-01: every contract records its parties)
+        customer_id = (corrected_payload.get("customer", {}).get("customer_id")
+                       or corrected_payload.get("customer_id", ""))
+        dealer_id = corrected_payload.get("dealer_id", "")
+        contract_type = corrected_payload.get("contract_type", "loan")
+        parties = [
+            {"party_role": "borrower" if contract_type == "loan" else "lessee",
+             "entity_type": "customer", "entity_id": customer_id},
+            {"party_role": "lender" if contract_type == "loan" else "lessor",
+             "entity_type": "organization", "entity_id": "SMARTLEDGER_FINANCE"},
+        ]
+        if dealer_id:
+            parties.append({"party_role": "dealer", "entity_type": "dealer", "entity_id": dealer_id})
+
         override_record: dict[str, Any] = {
             "contract_id":     contract_id,
             "record_type":     "origination",
@@ -198,8 +218,11 @@ class OverrideFlow:
             "reviewed_by":     reviewed_by,
             "original_event_id":   original_event_id,
             "original_failures":   original_failures,
-            "contract_data":       original_payload,
+            "contract_data":       corrected_payload,   # write corrected data to ledger
+            "original_payload":    original_payload if has_corrections else None,  # audit: before corrections
+            "corrections":         corrections if has_corrections else None,       # audit: what was changed
             "los_contract":        los_contract,
+            "parties":             parties,
         }
 
         write_result = await ledger.write_record(
@@ -264,18 +287,18 @@ class OverrideFlow:
 
         # ── Step 5: Create LLAS account (idempotent) ──────────────────────────
         if not llas_account.get("found", False):
-            financial_terms = original_payload.get("financial_terms", {})
+            financial_terms = corrected_payload.get("financial_terms", {})
             try:
                 await llas.create_account(
                     contract_id=contract_id,
                     account_data={
                         "contract_id":     contract_id,
-                        "contract_type":   original_payload.get("contract_type", "loan"),
+                        "contract_type":   corrected_payload.get("contract_type", "loan"),
                         "amount_financed": financial_terms.get("amount_financed"),
                         "term_months":     financial_terms.get("term_months"),
                         "monthly_payment": financial_terms.get("monthly_payment"),
-                        "origination_date": original_payload.get("origination_date"),
-                        "dealer_id":       original_payload.get("dealer_id"),
+                        "origination_date": corrected_payload.get("origination_date"),
+                        "dealer_id":       corrected_payload.get("dealer_id"),
                     },
                 )
                 logger.info("llas_account_created_via_override", contract_id=contract_id)

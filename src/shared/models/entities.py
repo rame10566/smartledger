@@ -1,15 +1,65 @@
 """
-Entity models: Vehicle, Customer, FinancialTerms, Contract.
+Entity models: Vehicle, Customer, FinancialTerms, Contract, ContractParty, AccessContext.
 These represent the core domain objects.
 Note: PII fields on Customer are off-chain only — never written to Fabric.
 """
 from datetime import date
-from typing import Optional
+from enum import StrEnum
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from shared.models.common import Address, ContractState, ContractType, Money, SourceSystem
+
+
+# ─── Party & Access Enums ────────────────────────────────────────────────────
+
+class PartyRole(StrEnum):
+    BORROWER = "borrower"
+    LESSEE   = "lessee"
+    LENDER   = "lender"
+    LESSOR   = "lessor"
+    DEALER   = "dealer"
+    SERVICER = "servicer"
+    INSURER  = "insurer"
+
+
+class EntityType(StrEnum):
+    CUSTOMER     = "customer"
+    ORGANIZATION = "organization"
+    DEALER       = "dealer"
+
+
+class OperationalRole(StrEnum):
+    ADMIN      = "admin"
+    AUDITOR    = "auditor"
+    OPERATOR   = "operator"
+    COMPLIANCE = "compliance"
+
+
+# ─── Party & Access Models ───────────────────────────────────────────────────
+
+class ContractParty(BaseModel):
+    """A party to a contract with their role and identity."""
+    party_role:  PartyRole
+    entity_type: EntityType
+    entity_id:   str
+    added_at:    str | None = None   # ISO-8601 timestamp
+    metadata:    dict[str, Any] | None = None  # e.g., {"name": "Acme Finance"}
+
+    model_config = {"use_enum_values": True}
+
+
+class AccessContext(BaseModel):
+    """Identity and authorization context for a data access request."""
+    actor_id:        str                       # user_id or service_id
+    actor_type:      str                       # "user" | "service" | "agent"
+    role:            OperationalRole | None = None  # operational role (if applicable)
+    party_entity_id: str | None = None         # if actor is a party, their entity_id
+    party_role:      PartyRole | None = None   # if actor is a party, their role
+
+    model_config = {"use_enum_values": True}
 
 
 class Vehicle(BaseModel):
@@ -80,6 +130,8 @@ class Contract(BaseModel):
     vehicle:          Vehicle
     financial_terms:  FinancialTerms
     dealer_id:        str
+    parties:          list[ContractParty] = Field(default_factory=list)
+    parties_hash:     str | None = None  # SHA-256 of sorted party list (on-chain reference)
     data_hash:        str | None = None
 
     model_config = {"use_enum_values": True}

@@ -522,6 +522,8 @@ Every multi-step flow is a **saga** with persistent checkpoints in PostgreSQL. I
 | Simulated systems         | ❌                     | ❌              | ❌               | Own tools |
 | Any unauthenticated caller| ❌                     | ❌              | ❌               | ❌        |
 
+**Note**: The matrix above governs **tool-level** access (which service can call which MCP tool). **Party-level** access (which human/entity can see which contract and which fields) is a separate dimension, defined in Section 6.5. Both dimensions are enforced simultaneously: a service must have tool-level access (this matrix) AND the requesting user/entity must have party-level or role-level access (Section 6.5).
+
 ### 6.4 Validation Proof Token
 
 | ID      | Requirement                                                                 | Priority |
@@ -559,6 +561,140 @@ Verification (Ledger MCP):
 On-chain:
   proof_token_jti stored in every ledger record as cryptographic evidence of validation
 ```
+
+### 6.5 Party-Based Access Control (Smart Data Gateway)
+
+Hyperledger Fabric is a **permissioned** blockchain — its purpose is not just immutability but **controlled access to a shared truth**. The MCP layer + Dashboard API together form the **Smart Data Gateway** — the ONLY path through which any human or system reads contract data. No one queries Fabric directly. The Gateway enforces party-level and role-level access on every read.
+
+#### 6.5.1 Contract Party Model
+
+Every contract has explicit **parties** — the entities with a legitimate interest in that contract's data. Parties are recorded at origination and updated as the contract lifecycle evolves (e.g., servicing transfer, insurance added).
+
+| Party Role       | Entity Type     | Description                                                   | When Added              |
+|------------------|-----------------|---------------------------------------------------------------|-------------------------|
+| `borrower`       | customer        | The individual financing the vehicle                          | Origination             |
+| `lessee`         | customer        | The individual leasing the vehicle (alias for borrower)       | Origination             |
+| `lender`         | organization    | The finance company extending credit (always a party)         | Origination             |
+| `lessor`         | organization    | The finance company in a lease (alias for lender)             | Origination             |
+| `dealer`         | dealer          | The dealership that originated the deal                       | Origination             |
+| `servicer`       | organization    | Entity servicing the loan (may be lender or a third party)    | Origination or transfer |
+| `insurer`        | organization    | Insurance company if coverage is bundled                      | When insurance verified |
+
+| ID        | Requirement                                                                         | Priority     |
+|-----------|-------------------------------------------------------------------------------------|--------------|
+| PBAC-01   | Every contract must record its parties with role, entity_type, and entity_id        | **Critical** |
+| PBAC-02   | The lender/lessor party is always present (implicit — the finance company)          | **Critical** |
+| PBAC-03   | Parties are written to PostgreSQL `contracts.parties` table at origination          | **Critical** |
+| PBAC-04   | Party list is append-only; parties can be added (servicer transfer, insurer) but never removed | High |
+| PBAC-05   | On-chain records store a `parties_hash` (SHA-256 of the sorted party list) — not the party details themselves | High |
+
+#### 6.5.2 Access Tiers
+
+Access to contract data is determined by the intersection of **identity** and **relationship**.
+
+| Access Tier          | Who                                            | Scope                                       | How Identified              |
+|----------------------|------------------------------------------------|----------------------------------------------|-----------------------------|
+| **Party Access**     | A party to a specific contract                 | That contract only, filtered to entitled fields | JWT `sub` claim matched against `contracts.parties.entity_id` |
+| **Operational Role** | admin, operator, auditor, compliance           | All contracts, filtered to role entitlements | JWT `role` claim             |
+| **System Access**    | MCP servers (agent, reporting, etc.)           | As defined in Section 6.3 Authorization Matrix | JWT `role=service`, tool-level |
+
+| ID        | Requirement                                                                         | Priority     |
+|-----------|-------------------------------------------------------------------------------------|--------------|
+| PBAC-06   | Party access: a party can view ONLY contracts where their entity_id appears in `contracts.parties` | **Critical** |
+| PBAC-07   | Operational roles: admin and compliance see all contracts and all fields            | **Critical** |
+| PBAC-08   | Operational roles: auditor sees all contracts, read-only, with full audit trail     | High         |
+| PBAC-09   | Operational roles: operator sees quarantine queue and assigned contracts            | High         |
+| PBAC-10   | System access: AI agent retains full access (it is the orchestrator)               | **Critical** |
+
+#### 6.5.3 Field-Level Visibility Matrix
+
+Different parties see different fields. The Gateway strips fields the caller is not entitled to see.
+
+| Field Category            | Borrower/Lessee | Dealer  | Servicer | Insurer | Admin | Auditor | Compliance |
+|---------------------------|:---------------:|:-------:|:--------:|:-------:|:-----:|:-------:|:----------:|
+| Contract ID, type, state  | Yes             | Yes     | Yes      | Yes     | Yes   | Yes     | Yes        |
+| Vehicle (VIN, make, model)| Yes             | Yes     | Yes      | Yes     | Yes   | Yes     | Yes        |
+| Financial terms (APR, payment, term) | Yes  | Yes     | Yes      | No      | Yes   | Yes     | Yes        |
+| Amount financed, residual | Yes             | Yes     | Yes      | No      | Yes   | Yes     | Yes        |
+| Down payment              | Yes             | Yes     | Yes      | No      | Yes   | Yes     | Yes        |
+| Dealer margin / incentives| No              | Yes     | No       | No      | Yes   | Yes     | Yes        |
+| Customer PII (name, SSN, DOB, address) | Own only | No | No   | No      | Yes   | Yes     | Yes        |
+| Customer credit score / tier | Own only     | No      | No       | No      | Yes   | Yes     | Yes        |
+| Payment history           | Yes             | No      | Yes      | No      | Yes   | Yes     | Yes        |
+| Delinquency status        | Yes             | No      | Yes      | No      | Yes   | Yes     | Yes        |
+| Internal risk scores      | No              | No      | No       | No      | Yes   | Yes     | Yes        |
+| Compliance notes          | No              | No      | No       | No      | Yes   | No      | Yes        |
+| Audit trail               | No              | No      | No       | No      | Yes   | Yes     | Yes        |
+| Other dealers' contracts  | No              | No      | N/A      | N/A     | Yes   | Yes     | Yes        |
+
+| ID        | Requirement                                                                         | Priority     |
+|-----------|-------------------------------------------------------------------------------------|--------------|
+| PBAC-11   | Gateway applies field-level filtering BEFORE returning data to the caller           | **Critical** |
+| PBAC-12   | Field visibility matrix is defined in configuration, not hardcoded                  | High         |
+| PBAC-13   | A borrower sees ONLY their own PII — never another customer's data                  | **Critical** |
+| PBAC-14   | A dealer sees ONLY contracts they originated — never another dealer's contracts      | **Critical** |
+
+#### 6.5.4 The Smart Data Gateway Principle
+
+The MCP layer (Ledger MCP, Validation MCP, Reporting MCP) and the Dashboard API together form the **Smart Data Gateway**. This is the enforcement point for all access control.
+
+```
+    External Users / Systems
+              |
+              v
+    +---------------------------+
+    |   SMART DATA GATEWAY      |
+    |                           |
+    |  Dashboard API (REST)     | <-- Human users (Dashboard UI)
+    |  Ledger MCP Server        | <-- AI Agent, Reporting MCP
+    |  Validation MCP Server    | <-- AI Agent
+    |  Reporting MCP Server     | <-- AI Agent, Dashboard API
+    |                           |
+    |  +---------------------+  |
+    |  | Access Enforcement  |  |
+    |  | - Identity (JWT)    |  |
+    |  | - Party lookup      |  |
+    |  | - Field filtering   |  |
+    |  | - Audit logging     |  |
+    |  +---------------------+  |
+    +---------------------------+
+              |
+              v
+    +---------------------------+
+    |  PostgreSQL + Fabric      |
+    |  (never accessed          |
+    |   directly by users)      |
+    +---------------------------+
+```
+
+| ID        | Requirement                                                                         | Priority     |
+|-----------|-------------------------------------------------------------------------------------|--------------|
+| PBAC-15   | No human user or external system queries Fabric or PostgreSQL directly              | **Critical** |
+| PBAC-16   | All reads go through the Smart Data Gateway (Dashboard API or Ledger MCP)           | **Critical** |
+| PBAC-17   | The Gateway is the ONLY code path that returns contract data to callers             | **Critical** |
+| PBAC-18   | Phase 1: Gateway enforcement. Phase 2: add Fabric MSP-level enforcement when orgs have own peers | High |
+
+#### 6.5.5 Access Audit
+
+Every data access through the Gateway is logged — not just writes.
+
+| ID        | Requirement                                                                         | Priority     |
+|-----------|-------------------------------------------------------------------------------------|--------------|
+| PBAC-19   | Every read request is logged to `audit.access_log` with: actor, role, contract_id, fields_returned, timestamp | **Critical** |
+| PBAC-20   | Actor identity is extracted from JWT — never hardcoded                               | **Critical** |
+| PBAC-21   | Access logs are queryable by contract_id, actor, and time range                     | High         |
+| PBAC-22   | Access audit satisfies REG-06 ("Full audit trail for all data access")               | **Critical** |
+| PBAC-23   | Access denied events are logged separately with reason                               | High         |
+
+#### 6.5.6 Design Decision: Enforcement Layer
+
+| Option                | Pros                                                     | Cons                                               |
+|-----------------------|----------------------------------------------------------|----------------------------------------------------|
+| Chaincode (Fabric MSP)| Enforcement at the data layer; cryptographically bound  | In this POC the agent is the only Fabric caller; no benefit yet |
+| MCP/API Gateway       | Natural enforcement point where humans interact; simple to implement | Must ensure no bypass paths exist |
+| Both                  | Defense in depth                                         | Complexity for POC                                 |
+
+**Decision**: Enforce at the **Gateway level** (Dashboard API + Ledger MCP) for Phase 1. The chaincode adds MSP-level enforcement in Phase 2 when organizations run their own Fabric peers. This is sufficient because (a) the agent is the only chaincode caller in Phase 1, and (b) the Gateway is the only interface humans and external systems use.
 
 ---
 
@@ -696,7 +832,7 @@ This is a **single MCP server** that wraps both Hyperledger Fabric (the ledger) 
 | BC-05   | `write_record` requires agent identity token + validation proof token       | **Critical** |
 | BC-06   | **Write guard**: configurable flag to disable writes entirely (Phase 0 enforcement) | High |
 | BC-07   | Emit events for all state changes                                           | High     |
-| BC-08   | Role-based access control                                                   | High     |
+| BC-08   | Party-based and role-based access control — enforced at the Smart Data Gateway (Section 6.5). Phase 1: Gateway enforcement. Phase 2: Fabric MSP enforcement per organization. | High |
 | BC-09   | Store only cryptographic hashes on-chain for PII                            | High     |
 | BC-10   | Undeniable audit trail with timestamps                                      | High     |
 | BC-11   | MVCC conflict detection as safety net against concurrent writes             | High     |
@@ -749,7 +885,7 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | FE-06   | Frontend: audit trail viewer with blockchain verification                   | High     |
 | FE-07   | Frontend: report viewer and export                                          | High     |
 | FE-08   | Frontend: human review queue for quarantined events                         | High     |
-| FE-09   | Frontend: role-based access (admin, auditor, operator, compliance)          | High     |
+| FE-09   | Frontend: identity-aware login with role AND party context. Operational roles (admin, auditor, operator, compliance) see role-scoped views. Party users (borrower, dealer) see only their own contracts with field-level filtering per Section 6.5.3. | High |
 | FE-10   | Frontend: quarantine aging metrics and SLA tracking                         | Medium   |
 
 ---
@@ -877,7 +1013,7 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | REG-03  | Data retention policies defined per data type in configuration              | High     |
 | REG-04  | Automated purge job for expired off-chain data                              | Medium   |
 | REG-05  | TILA and ECOA compliance: Reporting MCP generates required regulatory formats | Medium |
-| REG-06  | Full audit trail for all data access (who accessed what, when) for regulatory review | High |
+| REG-06  | Full audit trail for all data access (who accessed what, when) for regulatory review. Implemented via `audit.access_log` — see PBAC-19 through PBAC-23 in Section 6.5.5. | High |
 
 ---
 
@@ -904,7 +1040,7 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | Data Integrity Risk     | Systems pushing unvalidated data             | AI Agent + Validation Engine reject ALL unvalidated writes. Validation proof token required for ledger writes. |
 | Concurrency Risk        | Simultaneous events for same contract        | Per-contract distributed locks + Hyperledger MVCC as safety net |
 | Failure Risk            | Agent crash mid-flow                         | Saga pattern with persistent checkpoints; resume on restart    |
-| Security Risk           | Unauthorized ledger access                   | JWT auth + validation proof tokens + MCP authorization matrix  |
+| Security Risk           | Unauthorized ledger access or data exposure  | JWT auth + validation proof tokens + MCP authorization matrix + Smart Data Gateway party-based access control (Section 6.5). No direct Fabric/DB access. |
 | Regulatory Risk         | Blockchain immutability vs. Right-to-delete  | PII off-chain only; on-chain hashes; deletion workflow         |
 | AI Accuracy Risk        | AI misinterpreting legal clauses             | Human review gates, confidence thresholds, audit workflows     |
 | AI Agent Risk           | Agent making wrong decisions                 | Full MCP call trace; human-in-the-loop; all decisions auditable |
@@ -1018,8 +1154,12 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | Policy Drift          | Subtle differences in business logic between legacy and modern systems           |
 | VIN                   | Vehicle Identification Number                                                    |
 | Blaze Rules           | Legacy business rules engine in Oracle LOS                                       |
-| DAGT Protocol         | Protocol governing AI tool usage, data access, action transparency (Phase 2)    |
+| DAGT Protocol         | Data Access Governance Technology — protocol governing AI tool usage, data access, and action transparency. Phase 1: implemented as the Smart Data Gateway (Section 6.5) with party-based access control, field-level filtering, and access audit logging. Phase 2: formalized protocol specification with Fabric MSP integration. |
 | Chaincode             | Smart contract code running on Hyperledger Fabric                                |
 | MVCC                  | Multi-Version Concurrency Control — Hyperledger's built-in mechanism to reject conflicting transactions |
 | RPO                   | Recovery Point Objective — maximum acceptable data loss measured in time         |
 | RTO                   | Recovery Time Objective — maximum acceptable downtime after a failure            |
+| Smart Data Gateway    | The MCP layer + Dashboard API acting as the single access control enforcement point. All reads flow through the Gateway, which enforces party-based and role-based access (Section 6.5). |
+| Contract Party        | An entity with a legitimate interest in a contract's data (borrower, lender, dealer, servicer, insurer). Recorded in `contracts.parties`. |
+| Field-Level Filtering | The Gateway strips fields from responses based on the caller's party role or operational role per the visibility matrix in Section 6.5.3. |
+| Access Tier           | Classification of how a caller accesses data: party access (relationship to contract), operational role (admin/auditor/etc.), or system access (MCP service). |

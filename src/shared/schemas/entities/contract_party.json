@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smartledger/entities/contract_party",
+  "title": "ContractParty",
+  "description": "A party to a contract with their role and identity. Recorded in contracts.parties.",
+  "type": "object",
+  "required": ["party_role", "entity_type", "entity_id"],
+  "additionalProperties": false,
+  "properties": {
+    "party_role": {
+      "type": "string",
+      "enum": ["borrower", "lessee", "lender", "lessor", "dealer", "servicer", "insurer"]
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": ["customer", "organization", "dealer"]
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "added_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

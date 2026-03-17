@@ -34,6 +34,7 @@ from uuid import uuid4
 import asyncpg
 import jwt
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
@@ -108,6 +109,7 @@ mcp = FastMCP(
         f"Write guard is {'ON (Phase 0 — PostgreSQL only)' if settings.write_guard else 'OFF (Phase 1+ — Fabric active)'}."
     ),
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 
@@ -194,19 +196,56 @@ async def _write_audit(
     event_id: str | None,
     saga_id: str | None,
     details: dict[str, Any],
+    actor: str = "agent",
 ) -> None:
-    """Write an entry to the audit log."""
+    """Write an entry to the audit log. Actor extracted from caller identity (PBAC-20)."""
     await conn.execute(
         """
         INSERT INTO audit.log (action, actor, contract_id, event_id, saga_id, details, created_at)
-        VALUES ($1, 'agent', $2, $3::uuid, $4::uuid, $5::jsonb, NOW())
+        VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6::jsonb, NOW())
         """,
         action,
+        actor,
         contract_id,
         event_id,
         saga_id,
         json.dumps(details),
     )
+
+
+async def _store_parties(
+    conn: asyncpg.Connection,
+    contract_id: str,
+    parties: list[dict[str, Any]],
+) -> str | None:
+    """
+    Store contract parties in contracts.parties (PBAC-01 to PBAC-05).
+    Returns the parties_hash (SHA-256) for on-chain reference.
+    """
+    if not parties:
+        return None
+
+    for party in parties:
+        await conn.execute(
+            """
+            INSERT INTO contracts.parties (contract_id, party_role, entity_type, entity_id, metadata)
+            VALUES ($1, $2, $3, $4, $5::jsonb)
+            ON CONFLICT (contract_id, party_role, entity_id) DO NOTHING
+            """,
+            contract_id,
+            party.get("party_role", ""),
+            party.get("entity_type", ""),
+            party.get("entity_id", ""),
+            json.dumps(party.get("metadata")) if party.get("metadata") else None,
+        )
+
+    # Compute parties_hash for on-chain reference
+    sorted_parties = sorted(parties, key=lambda p: (p.get("party_role", ""), p.get("entity_id", "")))
+    parties_hash = hashlib.sha256(
+        json.dumps(sorted_parties, sort_keys=True).encode()
+    ).hexdigest()
+
+    return parties_hash
 
 
 # ─── Tools ────────────────────────────────────────────────────────────────────
@@ -273,6 +312,12 @@ async def write_record(record: dict, proof_token: str) -> dict:
                 jti,
                 fabric_tx_id,
             )
+
+            # Store contract parties if provided (PBAC-01)
+            parties = record.get("parties", [])
+            parties_hash = None
+            if parties:
+                parties_hash = await _store_parties(conn, contract_id, parties)
 
             # Audit log
             await _write_audit(
@@ -430,10 +475,11 @@ async def get_contract_lifecycle(contract_id: str) -> dict:
     if not state_row and not records:
         raise ValueError(f"No ledger data found for contract '{contract_id}'")
 
-    # Build payment summary from records
+    # Build records list, payment summary, and state history
     total_payments_made = 0
     total_amount_paid = 0.0
     state_history: list[dict] = []
+    records_out: list[dict] = []
 
     for rec in records:
         rec_dict = dict(rec)
@@ -443,28 +489,38 @@ async def get_contract_lifecycle(contract_id: str) -> dict:
         except Exception:
             payload = {}
 
+        records_out.append({
+            "record_type": rec_dict["record_type"],
+            "payload":     payload,
+            "created_at":  rec_dict["created_at"],
+        })
+
         if rec_dict["record_type"] == "payment_applied":
             total_payments_made += 1
             total_amount_paid += float(payload.get("amount", 0))
 
         if rec_dict["record_type"] == "state_transition":
             state_history.append({
-                "state": payload.get("new_state"),
+                "state":          payload.get("new_state"),
                 "previous_state": payload.get("previous_state"),
-                "transitioned_at": rec_dict["created_at"],
-                "trigger_event_id": payload.get("trigger_event_id"),
+                # Use "changed_at" so it matches the frontend Lifecycle interface
+                "changed_at":         rec_dict["created_at"],
+                "trigger_event_id":   payload.get("trigger_event_id"),
             })
 
     return {
-        "contract_id": contract_id,
-        "current_state": state_row["current_state"] if state_row else "unknown",
-        "previous_state": state_row["previous_state"] if state_row else None,
-        "state_changed_at": state_row["state_changed_at"] if state_row else None,
-        "days_past_due": state_row["days_past_due"] if state_row else 0,
-        "state_history": state_history,
+        "contract_id":         contract_id,
+        "current_state":       state_row["current_state"] if state_row else "unknown",
+        "previous_state":      state_row["previous_state"] if state_row else None,
+        "state_changed_at":    state_row["state_changed_at"] if state_row else None,
+        "days_past_due":       state_row["days_past_due"] if state_row else 0,
+        "state_history":       state_history,
         "total_payments_made": total_payments_made,
-        "total_amount_paid": total_amount_paid,
-        "record_count": len(records),
+        "total_amount_paid":   total_amount_paid,
+        # Expose both names for compatibility: "record_count" (legacy) + "total_records" (UI)
+        "record_count":        len(records),
+        "total_records":       len(records),
+        "records":             records_out,
     }
 
 

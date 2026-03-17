@@ -225,6 +225,166 @@ CREATE INDEX IF NOT EXISTS idx_extraction_contract ON extraction.results(contrac
 CREATE INDEX IF NOT EXISTS idx_extraction_review ON extraction.results(review_status)
     WHERE review_status = 'pending';
 
+-- ─── Contract Parties (Smart Data Gateway — Section 6.5) ────────────────────
+-- Explicit party model: who has a legitimate interest in each contract.
+-- Append-only — parties can be added (servicer transfer, insurer) but never removed.
+
+CREATE TABLE IF NOT EXISTS contracts.parties (
+    id              BIGSERIAL PRIMARY KEY,
+    contract_id     TEXT NOT NULL,
+    party_role      TEXT NOT NULL,          -- borrower | lessee | lender | lessor | dealer | servicer | insurer
+    entity_type     TEXT NOT NULL,          -- customer | organization | dealer
+    entity_id       TEXT NOT NULL,          -- references the party's identity
+    added_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata        JSONB,                  -- optional descriptive info (name, etc.)
+    UNIQUE(contract_id, party_role, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_parties_contract ON contracts.parties(contract_id);
+CREATE INDEX IF NOT EXISTS idx_parties_entity ON contracts.parties(entity_id);
+
+-- ─── Access Audit Log (PBAC-19 — Section 6.5.5) ────────────────────────────
+-- Every read through the Smart Data Gateway is logged here.
+-- Satisfies REG-06 and PBAC-19 through PBAC-23.
+
+CREATE TABLE IF NOT EXISTS audit.access_log (
+    id              BIGSERIAL PRIMARY KEY,
+    actor_id        TEXT NOT NULL,          -- user_id, service_id, or 'agent'
+    actor_type      TEXT NOT NULL,          -- user | service | agent
+    role            TEXT,                   -- operational role if applicable
+    party_role      TEXT,                   -- party role if applicable
+    contract_id     TEXT,                   -- which contract was accessed (null for list endpoints)
+    endpoint        TEXT NOT NULL,          -- e.g., /api/contracts/{id}/lifecycle
+    fields_returned TEXT[],                 -- list of top-level field groups returned
+    fields_filtered TEXT[],                 -- list of field groups stripped by access control
+    access_granted  BOOLEAN NOT NULL,       -- true = data returned; false = denied
+    denial_reason   TEXT,                   -- if denied, why
+    ip_address      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_log_actor ON audit.access_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_access_log_contract ON audit.access_log(contract_id);
+CREATE INDEX IF NOT EXISTS idx_access_log_created ON audit.access_log(created_at);
+
+-- ─── Field Visibility Configuration (PBAC-12 — Section 6.5.3) ──────────────
+-- Configurable field visibility matrix. Not hardcoded — stored in the database.
+
+CREATE TABLE IF NOT EXISTS contracts.field_visibility (
+    id              BIGSERIAL PRIMARY KEY,
+    viewer_role     TEXT NOT NULL,          -- party role or operational role
+    field_group     TEXT NOT NULL,          -- e.g., 'financial_terms', 'customer_pii', 'audit_trail'
+    visible         BOOLEAN NOT NULL DEFAULT TRUE,
+    version         INTEGER NOT NULL DEFAULT 1,
+    active          BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by      TEXT,
+    UNIQUE(viewer_role, field_group, version)
+);
+
+-- ─── Seed Data: Field Visibility Matrix ─────────────────────────────────────
+-- Matches the matrix in REQUIREMENTS.md Section 6.5.3.
+
+INSERT INTO contracts.field_visibility (viewer_role, field_group, visible, version)
+VALUES
+    -- Borrower/Lessee: sees own contract terms, vehicle, payment history; NOT dealer margin, risk, audit
+    ('borrower', 'contract_identity',   TRUE,  1),
+    ('borrower', 'vehicle',             TRUE,  1),
+    ('borrower', 'financial_terms',     TRUE,  1),
+    ('borrower', 'customer_pii_own',    TRUE,  1),
+    ('borrower', 'customer_credit',     TRUE,  1),
+    ('borrower', 'payment_history',     TRUE,  1),
+    ('borrower', 'delinquency',         TRUE,  1),
+    ('borrower', 'dealer_margin',       FALSE, 1),
+    ('borrower', 'internal_risk',       FALSE, 1),
+    ('borrower', 'compliance_notes',    FALSE, 1),
+    ('borrower', 'audit_trail',         FALSE, 1),
+    -- Dealer: sees deal structure; NOT customer PII, credit, payments, risk
+    ('dealer', 'contract_identity',     TRUE,  1),
+    ('dealer', 'vehicle',               TRUE,  1),
+    ('dealer', 'financial_terms',       TRUE,  1),
+    ('dealer', 'dealer_margin',         TRUE,  1),
+    ('dealer', 'customer_pii_own',      FALSE, 1),
+    ('dealer', 'customer_credit',       FALSE, 1),
+    ('dealer', 'payment_history',       FALSE, 1),
+    ('dealer', 'delinquency',           FALSE, 1),
+    ('dealer', 'internal_risk',         FALSE, 1),
+    ('dealer', 'compliance_notes',      FALSE, 1),
+    ('dealer', 'audit_trail',           FALSE, 1),
+    -- Servicer: sees contract terms, payment history, delinquency; NOT dealer margin, PII, risk
+    ('servicer', 'contract_identity',   TRUE,  1),
+    ('servicer', 'vehicle',             TRUE,  1),
+    ('servicer', 'financial_terms',     TRUE,  1),
+    ('servicer', 'customer_pii_own',    FALSE, 1),
+    ('servicer', 'customer_credit',     FALSE, 1),
+    ('servicer', 'payment_history',     TRUE,  1),
+    ('servicer', 'delinquency',         TRUE,  1),
+    ('servicer', 'dealer_margin',       FALSE, 1),
+    ('servicer', 'internal_risk',       FALSE, 1),
+    ('servicer', 'compliance_notes',    FALSE, 1),
+    ('servicer', 'audit_trail',         FALSE, 1),
+    -- Insurer: sees contract identity and vehicle only
+    ('insurer', 'contract_identity',    TRUE,  1),
+    ('insurer', 'vehicle',              TRUE,  1),
+    ('insurer', 'financial_terms',      FALSE, 1),
+    ('insurer', 'customer_pii_own',     FALSE, 1),
+    ('insurer', 'customer_credit',      FALSE, 1),
+    ('insurer', 'payment_history',      FALSE, 1),
+    ('insurer', 'delinquency',          FALSE, 1),
+    ('insurer', 'dealer_margin',        FALSE, 1),
+    ('insurer', 'internal_risk',        FALSE, 1),
+    ('insurer', 'compliance_notes',     FALSE, 1),
+    ('insurer', 'audit_trail',          FALSE, 1),
+    -- Admin: everything visible
+    ('admin', 'contract_identity',      TRUE,  1),
+    ('admin', 'vehicle',                TRUE,  1),
+    ('admin', 'financial_terms',        TRUE,  1),
+    ('admin', 'customer_pii_own',       TRUE,  1),
+    ('admin', 'customer_credit',        TRUE,  1),
+    ('admin', 'payment_history',        TRUE,  1),
+    ('admin', 'delinquency',            TRUE,  1),
+    ('admin', 'dealer_margin',          TRUE,  1),
+    ('admin', 'internal_risk',          TRUE,  1),
+    ('admin', 'compliance_notes',       TRUE,  1),
+    ('admin', 'audit_trail',            TRUE,  1),
+    -- Auditor: everything except compliance notes
+    ('auditor', 'contract_identity',    TRUE,  1),
+    ('auditor', 'vehicle',              TRUE,  1),
+    ('auditor', 'financial_terms',      TRUE,  1),
+    ('auditor', 'customer_pii_own',     TRUE,  1),
+    ('auditor', 'customer_credit',      TRUE,  1),
+    ('auditor', 'payment_history',      TRUE,  1),
+    ('auditor', 'delinquency',          TRUE,  1),
+    ('auditor', 'dealer_margin',        TRUE,  1),
+    ('auditor', 'internal_risk',        TRUE,  1),
+    ('auditor', 'compliance_notes',     FALSE, 1),
+    ('auditor', 'audit_trail',          TRUE,  1),
+    -- Compliance: everything visible
+    ('compliance', 'contract_identity', TRUE,  1),
+    ('compliance', 'vehicle',           TRUE,  1),
+    ('compliance', 'financial_terms',   TRUE,  1),
+    ('compliance', 'customer_pii_own',  TRUE,  1),
+    ('compliance', 'customer_credit',   TRUE,  1),
+    ('compliance', 'payment_history',   TRUE,  1),
+    ('compliance', 'delinquency',       TRUE,  1),
+    ('compliance', 'dealer_margin',     TRUE,  1),
+    ('compliance', 'internal_risk',     TRUE,  1),
+    ('compliance', 'compliance_notes',  TRUE,  1),
+    ('compliance', 'audit_trail',       TRUE,  1),
+    -- Operator: same as admin (they handle quarantine queue)
+    ('operator', 'contract_identity',   TRUE,  1),
+    ('operator', 'vehicle',             TRUE,  1),
+    ('operator', 'financial_terms',     TRUE,  1),
+    ('operator', 'customer_pii_own',    TRUE,  1),
+    ('operator', 'customer_credit',     TRUE,  1),
+    ('operator', 'payment_history',     TRUE,  1),
+    ('operator', 'delinquency',         TRUE,  1),
+    ('operator', 'dealer_margin',       TRUE,  1),
+    ('operator', 'internal_risk',       TRUE,  1),
+    ('operator', 'compliance_notes',    FALSE, 1),
+    ('operator', 'audit_trail',         TRUE,  1)
+ON CONFLICT (viewer_role, field_group, version) DO NOTHING;
+
 -- ─── Seed Data: Validation Rules ──────────────────────────────────────────────
 -- These are the active rules used by the Validation Engine for Phase 0.
 -- The validation server will also seed these on startup if the table is empty,

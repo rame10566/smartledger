@@ -20,6 +20,12 @@
     "vehicle":           { "$ref": "smartledger/entities/vehicle" },
     "financial_terms":   { "$ref": "smartledger/entities/financial_terms" },
     "dealer_id":         { "type": "string" },
+    "parties": {
+      "type": "array",
+      "items": { "$ref": "smartledger/entities/contract_party" },
+      "description": "Parties to this contract (borrower, lender, dealer, etc.)"
+    },
+    "parties_hash":      { "type": "string", "description": "SHA-256 of sorted party list (on-chain reference)" },
     "data_hash":         { "type": "string", "description": "SHA-256 of full off-chain contract document" }
   }
 }
