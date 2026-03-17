@@ -24,6 +24,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
@@ -43,7 +44,7 @@ _VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
 
 _redis: aioredis.Redis | None = None
 _contracts: dict[str, dict[str, Any]] = {}
-_seq: int = 1
+_seq: int = 1  # incremented per origination; combined with random suffix to avoid restart collisions
 
 # ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,8 @@ _SEED_CONTRACTS: list[dict[str, Any]] = [
             "last_name": "Carter",
             "credit_score": 725,
             "credit_tier": "prime",
+            "monthly_income": 6500.00,
+            "existing_monthly_debt": 1200.00,
         },
         "vehicle": {
             "vin": "1HGBH41JXMN109186",
@@ -73,6 +76,7 @@ _SEED_CONTRACTS: list[dict[str, Any]] = [
         },
         "financial_terms": {
             "amount_financed": 28500.00,
+            "vehicle_value": 31500.00,
             "term_months": 72,
             "interest_rate": 6.99,
             "monthly_payment": 487.50,
@@ -92,7 +96,9 @@ _SEED_CONTRACTS: list[dict[str, Any]] = [
             "first_name": "Maria",
             "last_name": "Gonzalez",
             "credit_score": 780,
-            "credit_tier": "prime",
+            "credit_tier": "super_prime",
+            "monthly_income": 8200.00,
+            "existing_monthly_debt": 800.00,
         },
         "vehicle": {
             "vin": "2T1BURHE0JC990856",
@@ -105,6 +111,7 @@ _SEED_CONTRACTS: list[dict[str, Any]] = [
         },
         "financial_terms": {
             "amount_financed": 21000.00,
+            "vehicle_value": 26000.00,
             "term_months": 36,
             "interest_rate": 4.99,
             "monthly_payment": 349.00,
@@ -125,7 +132,9 @@ _SEED_CONTRACTS: list[dict[str, Any]] = [
             "first_name": "Robert",
             "last_name": "Kim",
             "credit_score": 640,
-            "credit_tier": "near_prime",
+            "credit_tier": "subprime",
+            "monthly_income": 5000.00,
+            "existing_monthly_debt": 1800.00,
         },
         "vehicle": {
             "vin": "3VWFE21C04M000001",
@@ -138,6 +147,7 @@ _SEED_CONTRACTS: list[dict[str, Any]] = [
         },
         "financial_terms": {
             "amount_financed": 45000.00,
+            "vehicle_value": 50000.00,
             "term_months": 72,
             "interest_rate": 8.49,
             "monthly_payment": 799.50,
@@ -182,16 +192,16 @@ mcp = FastMCP(
         "Use originate_contract to create new contracts, get_contract to fetch details."
     ),
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _next_contract_id() -> str:
-    global _seq
-    cid = f"ORC-{date.today().year}-{_seq:04d}"
-    _seq += 1
-    return cid
+    """Generate a unique contract ID using random hex to avoid restart collisions."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    return f"ORC-{date.today().year}-{suffix}"
 
 
 async def _publish_event(

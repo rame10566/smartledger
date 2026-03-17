@@ -53,6 +53,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SERVICE_NAME=mcp-validation
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION=false
     ports:
       - "8001:8001"
     depends_on:
@@ -73,6 +74,7 @@ services:
       - FABRIC_PEER_ENDPOINT=${FABRIC_PEER_ENDPOINT:-}
       - SERVICE_NAME=mcp-ledger
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION=false
     ports:
       - "8002:8002"
     depends_on:
@@ -89,6 +91,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - SERVICE_NAME=mcp-semantic-ai
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION=false
     ports:
       - "8003:8003"
     depends_on:
@@ -104,6 +107,7 @@ services:
       - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
       - SERVICE_NAME=mcp-reporting
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION=false
     ports:
       - "8004:8004"
     depends_on:
@@ -121,6 +125,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SERVICE_NAME=mcp-simulated
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION=false
     ports:
       - "8010:8010"   # oracle_los
       - "8011:8011"   # salesforce_los
@@ -132,6 +137,8 @@ services:
       - "8017:8017"   # customer_portal
       - "8018:8018"   # mobile_app
       - "8019:8019"   # ivr
+      - "8020:8020"   # rules_engine
+      - "8021:8021"   # pricing_engine
     depends_on:
       redis:
         condition: service_healthy
@@ -147,10 +154,15 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
-      - MCP_VALIDATION_URL=http://mcp-validation:8001
-      - MCP_LEDGER_URL=http://mcp-ledger:8002
-      - MCP_SEMANTIC_AI_URL=http://mcp-semantic-ai:8003
-      - MCP_REPORTING_URL=http://mcp-reporting:8004
+      - MCP_VALIDATION_URL=http://mcp-validation:8001/mcp
+      - MCP_LEDGER_URL=http://mcp-ledger:8002/mcp
+      - MCP_SEMANTIC_AI_URL=http://mcp-semantic-ai:8003/mcp
+      - MCP_REPORTING_URL=http://mcp-reporting:8004/mcp
+      - MCP_ORACLE_LOS_URL=http://mcp-simulated:8010/mcp
+      - MCP_LLAS_URL=http://mcp-simulated:8012/mcp
+      - MCP_PAYMENT_URL=http://mcp-simulated:8014/mcp
+      - MCP_RULES_ENGINE_URL=http://mcp-simulated:8020/mcp
+      - MCP_PRICING_ENGINE_URL=http://mcp-simulated:8021/mcp
       - PHASE=${PHASE:-0}
       - SERVICE_NAME=agent
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -173,9 +185,9 @@ services:
     container_name: smartledger-dashboard-api
     environment:
       - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
-      - MCP_LEDGER_URL=http://mcp-ledger:8002
-      - MCP_VALIDATION_URL=http://mcp-validation:8001
-      - MCP_REPORTING_URL=http://mcp-reporting:8004
+      - MCP_LEDGER_URL=http://mcp-ledger:8002/mcp
+      - MCP_VALIDATION_URL=http://mcp-validation:8001/mcp
+      - MCP_REPORTING_URL=http://mcp-reporting:8004/mcp
       - SERVICE_NAME=dashboard-api
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -190,10 +202,10 @@ services:
     build:
       context: apps/dashboard-ui
       dockerfile: Dockerfile
+      args:
+        # Baked into next build so rewrites() resolves the correct upstream
+        API_URL: http://dashboard-api:8000
     container_name: smartledger-dashboard-ui
-    environment:
-      # Server-side rewrite target — use Docker service name, not localhost
-      - API_URL=http://dashboard-api:8000
     ports:
       - "3000:3000"
     depends_on:

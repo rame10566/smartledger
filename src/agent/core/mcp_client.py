@@ -32,6 +32,24 @@ class MCPCallError(Exception):
     pass
 
 
+def _as_list(result: Any) -> list:
+    """
+    Normalise the output of a tool declared to return list[T].
+
+    FastMCP serialises list[dict] as one TextContent per element, so:
+      • 0 elements → content=[]    → _parse_result returns None
+      • 1 element  → 1 TextContent → _parse_result returns the dict directly
+      • N elements → N TextContent → _parse_result returns list[dict] (correct)
+
+    This helper coerces all three cases to a plain list.
+    """
+    if result is None:
+        return []
+    if isinstance(result, list):
+        return result
+    return [result]
+
+
 async def call_tool(url: str, tool_name: str, arguments: dict[str, Any]) -> Any:
     """
     Call a tool on an MCP server and return the parsed result.
@@ -92,20 +110,33 @@ def _parse_result(content: list | None) -> Any:
     """
     Parse MCP tool result content.
 
-    FastMCP serialises tool return values as JSON text in a TextContent item.
-    Try JSON parse first; fall back to raw text if not valid JSON.
+    FastMCP serialises tool return values as JSON text in TextContent items.
+    When a tool returns list[dict], FastMCP emits one TextContent per element.
+    We detect that case (multiple items) and rebuild the list by parsing each
+    item individually.  Single-item responses are parsed as before.
     """
     if not content:
         return None
 
-    text = _extract_text(content)
-    if not text or text == "(no content)":
+    text_items = [item.text for item in content if hasattr(item, "text")]
+    if not text_items:
         return None
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return text
+    if len(text_items) == 1:
+        # Normal single-value response
+        try:
+            return json.loads(text_items[0])
+        except json.JSONDecodeError:
+            return text_items[0]
+
+    # Multiple TextContent items → FastMCP serialised a list[dict] (one item per element)
+    results = []
+    for text in text_items:
+        try:
+            results.append(json.loads(text))
+        except json.JSONDecodeError:
+            results.append(text)
+    return results
 
 
 # ── Convenience callers (typed by server) ────────────────────────────────────
@@ -141,8 +172,8 @@ class OracleLOSClient:
                                {"contract_id": contract_id})
 
     async def get_contracts(self, filters: dict | None = None) -> list:
-        return await call_tool(self._url(), "get_contracts",
-                               {"filters": filters})
+        return _as_list(await call_tool(self._url(), "get_contracts",
+                                        {"filters": filters}))
 
 
 class LLASClient:
@@ -179,13 +210,8 @@ class ValidationClient:
                                {"request": request})
 
     async def get_quarantined(self, contract_id: str | None = None) -> list:
-        return await call_tool(self._url(), "get_quarantined",
-                               {"contract_id": contract_id})
-
-    async def approve_override(self, event_id: str, reason: str, reviewer: str) -> dict:
-        return await call_tool(self._url(), "approve_override",
-                               {"event_id": event_id, "reason": reason,
-                                "reviewer": reviewer})
+        return _as_list(await call_tool(self._url(), "get_quarantined",
+                                        {"contract_id": contract_id}))
 
 
 class LedgerClient:
@@ -219,8 +245,8 @@ class LedgerClient:
                                {"contract_id": contract_id})
 
     async def get_audit_trail(self, contract_id: str) -> list:
-        return await call_tool(self._url(), "get_audit_trail",
-                               {"contract_id": contract_id})
+        return _as_list(await call_tool(self._url(), "get_audit_trail",
+                                        {"contract_id": contract_id}))
 
 
 class PaymentClient:
@@ -271,7 +297,7 @@ class SemanticAIClient:
                                {"extraction_id": extraction_id, "reason": reason})
 
     async def list_review_queue(self) -> list:
-        return await call_tool(self._url(), "list_review_queue", {})
+        return _as_list(await call_tool(self._url(), "list_review_queue", {}))
 
 
 class ReportingClient:
@@ -298,7 +324,7 @@ class ReportingClient:
         args: dict[str, Any] = {"limit": limit}
         if report_type:
             args["report_type"] = report_type
-        return await call_tool(self._url(), "list_reports", args)
+        return _as_list(await call_tool(self._url(), "list_reports", args))
 
     async def get_report(self, report_id: str) -> dict:
         return await call_tool(self._url(), "get_report", {"report_id": report_id})
@@ -308,12 +334,51 @@ class ReportingClient:
                                {"report_id": report_id, "format": format})
 
 
+class RulesEngineClient:
+    """MCP client for the Rules Engine simulator (port 8020)."""
+    _url = lambda self: settings.mcp_rules_engine_url
+
+    async def evaluate_eligibility(self, application: dict) -> dict:
+        return await call_tool(self._url(), "evaluate_eligibility",
+                               {"application": application})
+
+    async def get_credit_tier(self, credit_score: int) -> dict:
+        return await call_tool(self._url(), "get_credit_tier",
+                               {"credit_score": credit_score})
+
+    async def get_rule_set(self, contract_type: str = "loan") -> dict:
+        return await call_tool(self._url(), "get_rule_set",
+                               {"contract_type": contract_type})
+
+
+class PricingEngineClient:
+    """MCP client for the Pricing Engine simulator (port 8021)."""
+    _url = lambda self: settings.mcp_pricing_engine_url
+
+    async def calculate_rate(self, request: dict) -> dict:
+        return await call_tool(self._url(), "calculate_rate",
+                               {"request": request})
+
+    async def calculate_payment(self, request: dict) -> dict:
+        return await call_tool(self._url(), "calculate_payment",
+                               {"request": request})
+
+    async def get_rate_card(self, contract_type: str = "loan") -> dict:
+        return await call_tool(self._url(), "get_rate_card",
+                               {"contract_type": contract_type})
+
+    async def get_pricing_factors(self) -> dict:
+        return await call_tool(self._url(), "get_pricing_factors", {})
+
+
 # ── Module-level singleton clients ────────────────────────────────────────────
 
-oracle_los  = OracleLOSClient()
-llas        = LLASClient()
-validation  = ValidationClient()
-ledger      = LedgerClient()
-payment     = PaymentClient()
-semantic_ai = SemanticAIClient()
-reporting   = ReportingClient()
+oracle_los     = OracleLOSClient()
+llas           = LLASClient()
+validation     = ValidationClient()
+ledger         = LedgerClient()
+payment        = PaymentClient()
+semantic_ai    = SemanticAIClient()
+reporting      = ReportingClient()
+rules_engine   = RulesEngineClient()
+pricing_engine = PricingEngineClient()

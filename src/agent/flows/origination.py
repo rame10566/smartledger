@@ -26,7 +26,14 @@ from typing import Any
 from shared.logging import get_logger
 from shared.models.saga import SagaStep
 
-from agent.core.mcp_client import llas, ledger, oracle_los, validation
+from agent.core.mcp_client import (
+    llas,
+    ledger,
+    oracle_los,
+    pricing_engine,
+    rules_engine,
+    validation,
+)
 from agent.core.saga import SagaManager
 
 logger = get_logger(__name__)
@@ -68,9 +75,55 @@ class OriginationFlow:
         los_contract = await oracle_los.get_contract(contract_id)
         llas_account = await llas.get_account(contract_id)
 
+        # Cross-reference: gather upstream rules + pricing data for validation.
+        # These are non-blocking — if unavailable, validation skips the checks.
+        financial_terms = payload.get("financial_terms", {})
+        customer = payload.get("customer", {})
+        vehicle = payload.get("vehicle", {})
+
+        rules_context: dict[str, Any] | None = None
+        pricing_context: dict[str, Any] | None = None
+
+        try:
+            rules_context = await rules_engine.evaluate_eligibility({
+                "contract_type":         payload.get("contract_type", "loan"),
+                "credit_score":          customer.get("credit_score", 0),
+                "amount_financed":       financial_terms.get("amount_financed", 0),
+                "vehicle_value":         financial_terms.get("vehicle_value",
+                                             financial_terms.get("amount_financed", 0)),
+                "term_months":           financial_terms.get("term_months", 0),
+                "down_payment":          financial_terms.get("down_payment", 0),
+                "monthly_income":        customer.get("monthly_income", 0),
+                "existing_monthly_debt": customer.get("existing_monthly_debt", 0),
+                "vehicle_year":          vehicle.get("year", 0),
+            })
+        except Exception as e:
+            logger.warning("rules_engine_unavailable", error=str(e))
+
+        try:
+            credit_tier = (
+                rules_context.get("credit_tier") if rules_context
+                else customer.get("credit_tier", "unknown")
+            )
+            rate_result = await pricing_engine.calculate_rate({
+                "contract_type":   payload.get("contract_type", "loan"),
+                "credit_tier":     credit_tier,
+                "term_months":     financial_terms.get("term_months", 60),
+                "amount_financed": financial_terms.get("amount_financed", 0),
+                "vehicle_value":   financial_terms.get("vehicle_value",
+                                       financial_terms.get("amount_financed", 0)),
+                "vehicle_year":    vehicle.get("year", 0),
+                "dealer_markup":   financial_terms.get("dealer_markup", 0),
+            })
+            pricing_context = rate_result
+        except Exception as e:
+            logger.warning("pricing_engine_unavailable", error=str(e))
+
         context: dict[str, Any] = {
             "oracle_los_contract": los_contract,
             "llas_account":        llas_account,
+            "rules_engine":        rules_context,
+            "pricing_engine":      pricing_context,
         }
 
         await saga.checkpoint(

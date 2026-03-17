@@ -79,6 +79,8 @@ async def list_reports(
 ) -> list[dict[str, Any]]:
     """List recently generated reports, most recent first."""
     result = await reporting.list_reports(limit=limit, report_type=report_type)
+    if result is None:
+        return []
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=500, detail=result.get("message", "Failed to list reports"))
     return result

@@ -90,9 +90,9 @@ SmartLedger is **AI-agent-orchestrated**. An AI agent is the central brain that 
 │                  │              │  (Hyperledger + Chaincode)│
 │• validate_event  │              │                          │
 │• get_quarantined │              │ Ledger:                  │
-│• approve_override│              │ • write_record           │
-│• get_rules       │              │ • query_records          │
-│• get_rejections  │              │ • get_lifecycle          │
+│• get_rules       │              │ • write_record           │
+│• get_rejections  │              │ • query_records          │
+│                  │              │ • get_lifecycle          │
 │                  │              │ • get_audit_trail        │
 │                  │              │ Smart Contracts:         │
 │                  │              │ • execute_state_transition│
@@ -210,7 +210,9 @@ Every event published to the bus follows this format:
 | **Customer Portal (Web)**    | Simulated  | `get_account_summary`, `get_payment_schedule`, `get_payment_history`, `submit_payment`, `get_payoff_quote`, `get_documents` |
 | **Mobile App**               | Simulated  | Same tools as Customer Portal — different channel, same data. `submit_payment`, `get_account_summary`, `get_notifications` |
 | **IVR System**               | Simulated  | `get_account_status`, `get_balance_due`, `submit_phone_payment`, `request_callback`, `get_payoff_amount` |
-| **Validation Engine**        | Built      | `validate_event`, `get_quarantined`, `approve_override`, `get_validation_rules`, `update_rule`, `get_rule_history`, `get_rejection_log` |
+| **Rules Engine**             | Simulated  | `evaluate_eligibility`, `get_credit_tier`, `get_rule_set`, `list_rule_sets` |
+| **Pricing Engine**           | Simulated  | `calculate_rate`, `calculate_payment`, `get_rate_card`, `get_pricing_factors` |
+| **Validation Engine**        | Built      | `validate_event`, `get_quarantined`, `get_validation_rules`, `update_rule`, `get_rule_history`, `get_rejection_log` |
 | **Immutable Ledger**         | Built      | `write_record`, `query_records`, `get_contract_lifecycle`, `get_audit_trail`, `get_state`, `execute_state_transition`, `calculate_late_fee`, `check_title_release`, `get_governance_rules` |
 | **Semantic AI**              | Built      | `extract_contract_fields`, `get_extraction_confidence`, `submit_for_review` |
 | **Reporting**                | Built      | `generate_report`, `list_reports`, `get_report`, `export_report` |
@@ -299,26 +301,25 @@ Every event published to the bus follows this format:
    → Quarantine for human review with low-confidence flag
 ```
 
-### 3.5 Human-in-the-Loop Override Flow
+### 3.5 Validation Failure & Correction Flow
+
+SmartLedger/SDG is a **validation gateway + immutable ledger**. It does NOT own the data and does NOT make approval/rejection decisions. The LOS has already approved the loan/lease upstream. SmartLedger validates data integrity only.
 
 ```
-1. Agent quarantines an event (from any flow above)
-   → Writes quarantine record to PostgreSQL with full context
-   → Publishes "quarantine.pending" to event bus
-2. Dashboard picks up notification, shows in review queue
-3. Human reviews in Governance Dashboard:
-   → Sees: original event, cross-system data, rejection reason, agent's recommendation
-   → Actions: Approve (override), Reject (confirm rejection), Escalate
-   → Decision is authenticated (user identity) and stored in audit log
-4. On Approve:
-   → Dashboard calls Validation Engine MCP → approve_override(quarantine_id, approver_id, reason)
-   → Validation Engine publishes "quarantine.approved" to event bus
-   → Agent picks up, resumes saga from VALIDATION_COMPLETE checkpoint with override flag
-   → Writes to ledger with override audit trail attached
-5. On Reject:
-   → Quarantine record marked as REJECTED, event is permanently discarded
-6. SLAs:
-   → 24 hours: escalation alert to team lead
+1. Agent validates an event (from any flow above)
+   → Cross-system checks, schema validation, field-range checks
+   → Cross-references Rules Engine / Pricing Engine data as informational warnings (never blocking)
+2. IF validation fails:
+   → Quarantine record written to PostgreSQL with full context (read-only audit trail)
+   → Error returned to originating system
+3. Originating system must correct the data and resubmit
+   → SmartLedger does NOT correct data — correction happens at source
+   → SmartLedger does NOT approve or reject — it validates only
+4. Dashboard shows quarantine as a read-only audit trail:
+   → Operators can view failures, filter by status, see SLA aging
+   → No approve/reject/override buttons — quarantine is informational
+5. SLAs (informational):
+   → 24 hours: escalation alert to team lead (originating system hasn't resubmitted)
    → 72 hours: auto-escalate to manager
    → Dashboard shows aging metrics for all quarantined events
 ```
@@ -356,9 +357,7 @@ Every event published to the bus follows this format:
 | `ivr.payment_submitted`  | IVR System             | Agent      | Payment submitted via phone IVR      |
 | `ivr.callback_requested` | IVR System             | Agent      | Customer requested agent callback    |
 | `report.requested`        | Dashboard / Scheduler  | Agent      | Report generation request            |
-| `quarantine.pending`      | Agent                  | Dashboard  | New quarantined event for human review |
-| `quarantine.approved`     | Validation Engine      | Agent      | Human approved quarantined event     |
-| `quarantine.rejected`     | Validation Engine      | Dashboard  | Human rejected quarantined event     |
+| `quarantine.pending`      | Agent                  | Dashboard  | New quarantined event (read-only notification) |
 | `dlq`                     | Agent                  | Operations | Events that failed after max retries |
 
 ### 4.2 Off-Chain Data Store (PostgreSQL)
@@ -797,7 +796,7 @@ src/shared/schemas/
 | AGT-09  | Handle MCP server failures (retry with exponential backoff, circuit break, DLQ) | High |
 | AGT-10  | On restart, resume incomplete sagas from last checkpoint                    | **Critical** |
 | AGT-11  | Log every decision with full context (all MCP calls traced with saga_id)    | High     |
-| AGT-12  | Support human-in-the-loop for quarantined events                            | Medium   |
+| AGT-12  | On validation failure, return error to originating system; quarantine is read-only audit trail | Medium   |
 | AGT-13  | Trigger report generation on schedule or on-demand                          | Medium   |
 | AGT-14  | Operate in `read_only` mode (Phase 0) or `active` mode (Phase 1+)          | High     |
 
@@ -805,7 +804,7 @@ src/shared/schemas/
 
 | ID      | Requirement                                                                 | Priority |
 |---------|-----------------------------------------------------------------------------|----------|
-| VAL-01  | Expose MCP tools: `validate_event`, `get_quarantined`, `approve_override`, `get_validation_rules`, `update_rule`, `get_rule_history`, `get_rejection_log` | **Critical** |
+| VAL-01  | Expose MCP tools: `validate_event`, `get_quarantined`, `get_validation_rules`, `update_rule`, `get_rule_history`, `get_rejection_log` | **Critical** |
 | VAL-02  | Cross-system validation: verify event data matches across all relevant systems | **Critical** |
 | VAL-03  | Business rule validation: verify compliance with contract terms, fee schedules, regulations | **Critical** |
 | VAL-04  | Sequence validation: reject out-of-order events                             | High     |
@@ -884,7 +883,7 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | FE-05   | Frontend: parity & drift alerts (migration period)                          | High     |
 | FE-06   | Frontend: audit trail viewer with blockchain verification                   | High     |
 | FE-07   | Frontend: report viewer and export                                          | High     |
-| FE-08   | Frontend: human review queue for quarantined events                         | High     |
+| FE-08   | Frontend: read-only quarantine view (validation failures audit trail)       | High     |
 | FE-09   | Frontend: identity-aware login with role AND party context. Operational roles (admin, auditor, operator, compliance) see role-scoped views. Party users (borrower, dealer) see only their own contracts with field-level filtering per Section 6.5.3. | High |
 | FE-10   | Frontend: quarantine aging metrics and SLA tracking                         | Medium   |
 
@@ -933,7 +932,7 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | SVAL-07 | Insurance lapse mid-contract           | Agent validates state change, writes with alert          |
 | SVAL-08 | Early termination / payoff             | Agent validates, updates lifecycle state                 |
 | SVAL-09 | Event with missing required fields     | Agent rejects at schema level before validation          |
-| SVAL-10 | Valid event requiring override         | Agent quarantines, presents to human, awaits approval    |
+| SVAL-10 | Valid event with cross-reference warning | Agent validates successfully, attaches informational warnings from Rules/Pricing engines |
 
 ---
 
@@ -1117,11 +1116,11 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | Area | Scope |
 |---|---|
 | **Origination happy path** | Oracle LOS (simulated) → Redis Streams → Agent → Validation MCP → Ledger MCP |
-| **Unhappy path** | Validation failure → quarantine → Dashboard review queue → human override → retry |
+| **Unhappy path** | Validation failure → quarantine (read-only audit trail) → originating system corrects and resubmits |
 | **Payment flow** | Payment system (simulated) + Customer Portal/Mobile/IVR payments → Agent → Ledger |
 | **Semantic AI** | PDF contract ingestion → field extraction → confidence scoring → human review if low confidence |
 | **Blockchain** | Hyperledger Fabric live writes (Phase 1 — write guard OFF for POC demo) |
-| **All simulated systems** | All 10 simulated MCP servers: Oracle LOS, Salesforce LOS, LLAS, CRM, Payment, Insurance, Dealer, Customer Portal, Mobile App, IVR |
+| **All simulated systems** | All 12 simulated MCP servers: Oracle LOS, Salesforce LOS, LLAS, CRM, Payment, Insurance, Dealer, Customer Portal, Mobile App, IVR, Rules Engine, Pricing Engine |
 | **Saga + resilience** | Checkpoints at each step; crash recovery tested; per-contract locks; idempotency dedup |
 | **Full Dashboard UI** | Contract lifecycle view, validation queue, quarantined items, audit trail, basic reporting |
 | **Reporting** | At least 1 end-to-end report: contract origination summary |

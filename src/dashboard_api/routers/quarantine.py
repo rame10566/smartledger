@@ -1,46 +1,29 @@
 """
 Quarantine Router
 
-Endpoints for the human-review quarantine queue.
-Access control enforced via Smart Data Gateway (Section 6.5).
+Read-only endpoints for the quarantine audit trail.
+SmartLedger does not override or correct data — that is the responsibility
+of the originating system (LOS, etc.). This router provides visibility
+into validation failures so operators can notify upstream systems.
 
-GET  /api/quarantine               — list pending (and recently resolved) events
-GET  /api/quarantine/{event_id}    — single quarantine record
-POST /api/quarantine/{event_id}/approve  — approve override (calls Validation MCP)
-POST /api/quarantine/{event_id}/reject   — reject the event
+GET  /api/quarantine               — list quarantined events (all statuses)
+GET  /api/quarantine/{event_id}    — single quarantine record detail
 """
 
 import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 
-from dashboard_api.mcp_clients import validation
 from dashboard_api.middleware.access_audit import log_access
 from dashboard_api.middleware.access_control import (
     AccessContext,
-    WRITE_ROLES,
     get_access_context,
 )
 from shared.logging import get_logger
-from shared.models.entities import OperationalRole
 
 log = get_logger(__name__)
 router = APIRouter(tags=["quarantine"])
-
-
-# ── Request / Response models ──────────────────────────────────────────────────
-
-class ApproveRequest(BaseModel):
-    reason:      str
-    reviewer:    str
-    corrections: dict[str, Any] | None = None  # reviewer-supplied field corrections (e.g. {"financial_terms": {"interest_rate": 6.49}})
-
-
-class RejectRequest(BaseModel):
-    reason:    str
-    reviewer:  str
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -68,15 +51,6 @@ def _row_to_dict(row) -> dict[str, Any]:
 
 def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
-
-
-def _require_write_role(ctx: AccessContext) -> None:
-    """Ensure the caller has a role that can approve/reject quarantine items."""
-    if ctx.role not in WRITE_ROLES and ctx.actor_type != "agent":
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: approve/reject requires admin, operator, or compliance role",
-        )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -151,7 +125,7 @@ async def get_quarantine_record(
     request:  Request,
     ctx:      AccessContext = Depends(get_access_context),
 ) -> dict[str, Any]:
-    """Return a single quarantine record."""
+    """Return a single quarantine record with full failure details."""
     pool = request.app.state.pool
 
     async with pool.acquire() as conn:
@@ -177,103 +151,3 @@ async def get_quarantine_record(
                      contract_id=row["contract_id"], ip_address=_client_ip(request))
 
     return _row_to_dict(row)
-
-
-@router.post("/quarantine/{event_id}/approve")
-async def approve_quarantine(
-    event_id: str,
-    body:     ApproveRequest,
-    request:  Request,
-    ctx:      AccessContext = Depends(get_access_context),
-) -> dict[str, Any]:
-    """
-    Human reviewer approves an override.
-    Requires admin, operator, or compliance role.
-    """
-    _require_write_role(ctx)
-    pool = request.app.state.pool
-
-    log.info(
-        "quarantine_approve_requested",
-        event_id=event_id,
-        reviewer=body.reviewer,
-        actor_id=ctx.actor_id,
-    )
-    try:
-        result = await validation.approve_override(
-            event_id=event_id,
-            reason=body.reason,
-            reviewer=body.reviewer,
-            corrections=body.corrections,
-        )
-    except Exception as e:
-        log.error("quarantine_approve_failed", event_id=event_id, error=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
-
-    log.info(
-        "quarantine_approved",
-        event_id=event_id,
-        contract_id=result.get("contract_id"),
-        reviewer=body.reviewer,
-    )
-
-    await log_access(pool, ctx, f"/api/quarantine/{event_id}/approve",
-                     contract_id=result.get("contract_id"), ip_address=_client_ip(request))
-
-    return result
-
-
-@router.post("/quarantine/{event_id}/reject")
-async def reject_quarantine(
-    event_id: str,
-    body:     RejectRequest,
-    request:  Request,
-    ctx:      AccessContext = Depends(get_access_context),
-) -> dict[str, Any]:
-    """
-    Human reviewer rejects a quarantined event.
-    Requires admin, operator, or compliance role.
-    """
-    _require_write_role(ctx)
-    pool = request.app.state.pool
-
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            UPDATE validation.quarantine
-            SET status = 'rejected',
-                reviewed_by = $2,
-                reviewed_at = NOW(),
-                override_reason = $3
-            WHERE event_id = $1::uuid AND status = 'pending'
-            RETURNING event_id::text, contract_id, status
-            """,
-            event_id,
-            body.reviewer,
-            body.reason,
-        )
-
-    if not row:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No pending quarantine record found for event_id '{event_id}'",
-        )
-
-    log.info(
-        "quarantine_rejected",
-        event_id=event_id,
-        contract_id=row["contract_id"],
-        reviewer=body.reviewer,
-    )
-
-    await log_access(pool, ctx, f"/api/quarantine/{event_id}/reject",
-                     contract_id=row["contract_id"], ip_address=_client_ip(request))
-
-    return {
-        "success":     True,
-        "event_id":    row["event_id"],
-        "contract_id": row["contract_id"],
-        "status":      "rejected",
-        "reviewer":    body.reviewer,
-        "reason":      body.reason,
-    }

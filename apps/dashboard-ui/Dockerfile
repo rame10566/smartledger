@@ -14,6 +14,10 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# API_URL must be set at build time so next.config.ts rewrites() can resolve it
+# (standalone output compiles rewrites at build, not runtime)
+ARG API_URL=http://localhost:8000
+ENV API_URL=$API_URL
 RUN pnpm run build
 
 # ─── Production ───────────────────────────────────────────────────────────────

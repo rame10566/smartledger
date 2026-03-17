@@ -28,6 +28,7 @@ from typing import Any
 
 import asyncpg
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import get_logger
@@ -60,7 +61,9 @@ async def lifespan(server: FastMCP):
         logger.info("reporting_mcp_stopped")
 
 
-mcp = FastMCP("smartledger-reporting", lifespan=lifespan)
+mcp = FastMCP("smartledger-reporting", lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -110,7 +113,12 @@ async def _store_report(
 # ─── Report generators ────────────────────────────────────────────────────────
 
 async def _generate_portfolio_overview(pool: asyncpg.Pool, filters: dict) -> dict:
-    """Count contracts by state, sum financed amounts, average interest rates."""
+    """Count contracts by state, sum financed amounts, average interest rates.
+
+    Reads from contracts.state (state breakdown) and contracts.records
+    (origination payloads contain financial_terms).  The off-chain documents
+    table may be empty in Phase 0, so we extract directly from ledger records.
+    """
 
     state_rows = await pool.fetch(
         """
@@ -121,17 +129,28 @@ async def _generate_portfolio_overview(pool: asyncpg.Pool, filters: dict) -> dic
         """
     )
 
+    # Extract financial terms from origination record payloads (JSONB)
     fin_rows = await pool.fetch(
         """
         SELECT
-            COUNT(*)                                         AS total_contracts,
-            COALESCE(SUM(amount_financed), 0)                AS total_amount_financed,
-            COALESCE(AVG(amount_financed), 0)                AS avg_amount_financed,
-            COALESCE(AVG(interest_rate), 0)                  AS avg_interest_rate,
-            COALESCE(AVG(term_months), 0)                    AS avg_term_months,
-            COALESCE(SUM(monthly_payment), 0)                AS total_monthly_payments
-        FROM contracts.documents
-        WHERE deleted_per_regulation = FALSE
+            COUNT(DISTINCT contract_id)                                                          AS total_contracts,
+            COALESCE(SUM(
+                (payload->'contract_data'->'financial_terms'->>'amount_financed')::NUMERIC
+            ), 0)                                                                                AS total_amount_financed,
+            COALESCE(AVG(
+                (payload->'contract_data'->'financial_terms'->>'amount_financed')::NUMERIC
+            ), 0)                                                                                AS avg_amount_financed,
+            COALESCE(AVG(
+                (payload->'contract_data'->'financial_terms'->>'interest_rate')::NUMERIC
+            ), 0)                                                                                AS avg_interest_rate,
+            COALESCE(AVG(
+                (payload->'contract_data'->'financial_terms'->>'term_months')::NUMERIC
+            ), 0)                                                                                AS avg_term_months,
+            COALESCE(SUM(
+                (payload->'contract_data'->'financial_terms'->>'monthly_payment')::NUMERIC
+            ), 0)                                                                                AS total_monthly_payments
+        FROM contracts.records
+        WHERE record_type = 'origination'
         """
     )
 

@@ -21,6 +21,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
@@ -111,6 +112,7 @@ mcp = FastMCP(
         "Customers can view balances, make payments, and check payment schedules."
     ),
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 

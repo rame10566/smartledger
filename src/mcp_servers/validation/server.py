@@ -3,12 +3,14 @@ Validation Engine MCP Server
 
 Core gatekeeper: validates every event before it can be written to the ledger.
 Issues single-use signed JWT proof tokens on successful validation.
-Quarantines invalid events for human review.
+Quarantines invalid events as a read-only audit trail.
+
+Data correction is the responsibility of the originating system (LOS, etc.).
+SmartLedger does NOT override or correct data — it validates and records.
 
 Tools:
   - validate_event(request)              → ValidationResult + proof_token (if valid)
-  - get_quarantined(contract_id?)        → list quarantined events pending review
-  - approve_override(event_id, reason, reviewer) → approve quarantine, publish retry event
+  - get_quarantined(contract_id?)        → list quarantined events (read-only audit trail)
   - get_validation_rules(rule_type?)     → list active rules from DB
   - update_rule(rule_id, config, updated_by) → versioned rule update (append-only)
   - get_rule_history(rule_id)            → version history for a rule
@@ -32,6 +34,7 @@ import asyncpg
 import jwt
 import redis.asyncio as aioredis
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
@@ -102,6 +105,21 @@ _SEED_RULES: list[dict[str, Any]] = [
         "description": "VIN in event payload must match VIN in Oracle LOS contract record",
         "config": {"check": "vin_match_oracle_los"},
     },
+    # ── Cross-reference rules (warnings only — never block writes) ──────────
+    {
+        "rule_id": "RULE-XREF-ELIGIBILITY",
+        "rule_type": "cross_system",
+        "event_type": "contract.originated",
+        "description": "Cross-reference: flag if Rules Engine says contract would not meet current eligibility (informational)",
+        "config": {"check": "rules_engine_eligibility", "severity": "warning"},
+    },
+    {
+        "rule_id": "RULE-XREF-RATE",
+        "rule_type": "cross_system",
+        "event_type": "contract.originated",
+        "description": "Cross-reference: flag if LOS interest rate deviates >2% from Pricing Engine calculation (informational)",
+        "config": {"check": "pricing_engine_rate_deviation", "threshold_pct": 2.0, "severity": "warning"},
+    },
     # ── Payment rules ─────────────────────────────────────────────────────────
     {
         "rule_id": "RULE-PAY-AMT",
@@ -167,6 +185,7 @@ mcp = FastMCP(
         "Quarantines invalid events for human review."
     ),
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 
@@ -359,6 +378,17 @@ def _validate_payment(
     return failures
 
 
+def _deep_merge(base: dict, overrides: dict) -> dict:
+    """Recursively merge overrides into base dict. Returns a new dict."""
+    result = dict(base)
+    for key, value in overrides.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def _validate_origination(
     payload: dict[str, Any],
     context: dict[str, Any],
@@ -487,6 +517,68 @@ def _validate_origination(
     return failures
 
 
+def _cross_reference_origination(
+    payload: dict[str, Any],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Cross-reference origination data against upstream Rules Engine and Pricing
+    Engine. These are informational warnings — they flag data anomalies but
+    do NOT block the ledger write. The LOS already approved the deal; we're
+    just verifying consistency.
+
+    Returns a list of warning dicts.
+    """
+    warnings: list[dict[str, Any]] = []
+
+    # ── Rules Engine cross-reference ─────────────────────────────────────────
+    rules_data = context.get("rules_engine")
+    if rules_data and not rules_data.get("eligible", True):
+        failed_rules = [
+            r for r in rules_data.get("results", [])
+            if not r.get("passed")
+        ]
+        warning_details = "; ".join(r.get("message", r.get("rule", "")) for r in failed_rules)
+        warnings.append({
+            "code": "RULES_ENGINE_INELIGIBLE",
+            "message": (
+                f"Rules Engine indicates this contract would not meet current "
+                f"eligibility criteria (credit tier: {rules_data.get('credit_tier')}). "
+                f"Failed: {warning_details}. "
+                f"LOS already approved — recording as informational warning."
+            ),
+            "severity": "warning",
+            "source": "rules_engine",
+        })
+
+    # ── Pricing Engine cross-reference: rate deviation ───────────────────────
+    pricing_data = context.get("pricing_engine")
+    if pricing_data and pricing_data.get("final_rate") is not None:
+        los_rate = _get_nested(payload, "financial_terms.interest_rate")
+        engine_rate = pricing_data["final_rate"]
+
+        if los_rate is not None:
+            rate_delta = abs(float(los_rate) - float(engine_rate))
+            # Flag if LOS rate deviates more than 2% from engine calculation
+            if rate_delta > 2.0:
+                warnings.append({
+                    "code": "RATE_DEVIATION",
+                    "message": (
+                        f"Interest rate from LOS ({los_rate}%) deviates "
+                        f"from Pricing Engine calculation ({engine_rate}%) "
+                        f"by {rate_delta:.2f} percentage points. "
+                        f"May indicate dealer markup, promotional rate, or data entry error."
+                    ),
+                    "severity": "warning",
+                    "source": "pricing_engine",
+                    "los_rate": los_rate,
+                    "engine_rate": engine_rate,
+                    "delta": round(rate_delta, 2),
+                })
+
+    return warnings
+
+
 # ─── Tools ────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -556,6 +648,8 @@ async def validate_event(request: dict) -> dict:
 
     if event_type == EventType.CONTRACT_ORIGINATED:
         failures = _validate_origination(payload, context)
+        # Cross-reference against upstream systems (warnings only, never blocks)
+        warnings.extend(_cross_reference_origination(payload, context))
     elif event_type in _PAYMENT_EVENT_TYPES:
         failures = _validate_payment(payload, context)
     else:
@@ -648,75 +742,6 @@ async def get_quarantined(contract_id: str | None = None) -> list[dict]:
             )
 
     return [dict(row) for row in rows]
-
-
-@mcp.tool()
-async def approve_override(event_id: str, reason: str, reviewer: str) -> dict:
-    """
-    Approve a quarantined event for override.
-
-    Updates the quarantine status to 'approved' and publishes a
-    quarantine.approved event to Redis Streams so the agent can retry
-    the origination with the human's override.
-
-    Returns: {success, event_id, contract_id}
-    """
-    if not _pool:
-        raise RuntimeError("Database not available")
-
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            UPDATE validation.quarantine
-            SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(), override_reason = $3
-            WHERE event_id = $1::uuid AND status = 'pending'
-            RETURNING event_id::text, contract_id, event_type, original_payload
-            """,
-            event_id,
-            reviewer,
-            reason,
-        )
-
-    if not row:
-        raise ValueError(
-            f"No pending quarantine record found for event_id '{event_id}'"
-        )
-
-    # Publish quarantine.approved event to Redis so the agent retries
-    if _redis:
-        message: dict[str, str] = {
-            "event_id": str(uuid.uuid4()),
-            "event_type": EventType.QUARANTINE_APPROVED,
-            "source_system": "dashboard",
-            "contract_id": row["contract_id"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "correlation_id": str(uuid.uuid4()),
-            "schema_version": "1.0",
-            "payload": json.dumps({
-                "original_event_id": event_id,
-                "contract_id": row["contract_id"],
-                "override_reason": reason,
-                "reviewed_by": reviewer,
-                "original_payload": json.loads(row["original_payload"] or "{}"),
-            }),
-        }
-        await _redis.xadd("smartledger:events", message)
-
-    logger.info(
-        "quarantine_approved",
-        event_id=event_id,
-        contract_id=row["contract_id"],
-        reviewer=reviewer,
-    )
-
-    return {
-        "success": True,
-        "event_id": event_id,
-        "contract_id": row["contract_id"],
-        "event_type": row["event_type"],
-        "override_reason": reason,
-        "reviewed_by": reviewer,
-    }
 
 
 @mcp.tool()

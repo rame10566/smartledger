@@ -28,6 +28,24 @@ class MCPCallError(Exception):
     pass
 
 
+def _as_list(result: Any) -> list:
+    """
+    Normalise the output of a tool that is declared to return list[T].
+
+    FastMCP serialises list[dict] as one TextContent per element, so:
+      • 0 elements → content=[]    → _call_tool returns None
+      • 1 element  → 1 TextContent → _call_tool returns the dict directly
+      • N elements → N TextContent → _call_tool returns list[dict] (correct)
+
+    This helper coerces all three cases to a plain list.
+    """
+    if result is None:
+        return []
+    if isinstance(result, list):
+        return result
+    return [result]  # single-element list
+
+
 async def _call_tool(url: str, tool_name: str, arguments: dict[str, Any]) -> Any:
     try:
         async with streamablehttp_client(url) as (read, write, _):
@@ -42,11 +60,27 @@ async def _call_tool(url: str, tool_name: str, arguments: dict[str, Any]) -> Any
         content = result.content
         if not content:
             return None
-        text = " | ".join(item.text for item in content if hasattr(item, "text"))
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return text
+
+        text_items = [item.text for item in content if hasattr(item, "text")]
+        if not text_items:
+            return None
+
+        if len(text_items) == 1:
+            # Normal single-value response
+            try:
+                return json.loads(text_items[0])
+            except json.JSONDecodeError:
+                return text_items[0]
+
+        # Multiple TextContent items → FastMCP serialised a list[dict]
+        # (one TextContent element per list item)
+        results = []
+        for text in text_items:
+            try:
+                results.append(json.loads(text))
+            except json.JSONDecodeError:
+                results.append(text)
+        return results
 
     except MCPCallError:
         raise
@@ -68,8 +102,8 @@ class _LedgerClient:
                                 {"contract_id": contract_id})
 
     async def get_audit_trail(self, contract_id: str) -> list:
-        return await _call_tool(self._url(), "get_audit_trail",
-                                {"contract_id": contract_id})
+        return _as_list(await _call_tool(self._url(), "get_audit_trail",
+                                         {"contract_id": contract_id}))
 
 
 # ── Validation client ─────────────────────────────────────────────────────────
@@ -78,12 +112,8 @@ class _ValidationClient:
     def _url(self): return settings.mcp_validation_url
 
     async def get_quarantined(self, contract_id: str | None = None) -> list:
-        return await _call_tool(self._url(), "get_quarantined",
-                                {"contract_id": contract_id})
-
-    async def approve_override(self, event_id: str, reason: str, reviewer: str) -> dict:
-        return await _call_tool(self._url(), "approve_override",
-                                {"event_id": event_id, "reason": reason, "reviewer": reviewer})
+        return _as_list(await _call_tool(self._url(), "get_quarantined",
+                                          {"contract_id": contract_id}))
 
 
 # ── Reporting client ──────────────────────────────────────────────────────────
@@ -104,7 +134,7 @@ class _ReportingClient:
         args: dict[str, Any] = {"limit": limit}
         if report_type:
             args["report_type"] = report_type
-        return await _call_tool(self._url(), "list_reports", args)
+        return _as_list(await _call_tool(self._url(), "list_reports", args))
 
     async def get_report(self, report_id: str) -> dict:
         return await _call_tool(self._url(), "get_report", {"report_id": report_id})

@@ -22,6 +22,8 @@ class SourceSystem(StrEnum):
     CUSTOMER_PORTAL  = "customer_portal"
     MOBILE_APP       = "mobile_app"
     IVR              = "ivr"
+    RULES_ENGINE     = "rules_engine"
+    PRICING_ENGINE   = "pricing_engine"
     AGENT            = "agent"
     DASHBOARD        = "dashboard"
 

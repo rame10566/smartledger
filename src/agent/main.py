@@ -37,7 +37,6 @@ from shared.logging import configure_logging, get_logger
 from agent.core.event_loop import AgentEventLoop
 from agent.core.saga import SagaManager
 from agent.flows.origination import OriginationFlow
-from agent.flows.override import OverrideFlow
 from agent.flows.payment import PaymentFlow
 from agent.flows.pdf_ingestion import PDFIngestionFlow
 
@@ -116,9 +115,6 @@ async def main() -> None:
     # Register flow handlers (add more here as new event types are implemented)
     origination_flow = OriginationFlow()
     event_loop.register_flow("contract.originated", origination_flow)
-
-    override_flow = OverrideFlow()
-    event_loop.register_flow("quarantine.approved", override_flow)
 
     # Payment flows — same handler for all payment channel event types
     payment_flow = PaymentFlow()

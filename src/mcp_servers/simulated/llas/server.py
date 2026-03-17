@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
@@ -114,6 +115,7 @@ mcp = FastMCP(
         "Returns found=False for newly originated contracts that have no account yet."
     ),
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 

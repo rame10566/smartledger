@@ -20,6 +20,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
@@ -99,6 +100,7 @@ mcp = FastMCP(
         "for auto loan/lease customers. Publishes payment.received events to SmartLedger."
     ),
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 

@@ -126,33 +126,6 @@ export async function getQuarantineRecord(eventId: string): Promise<QuarantineRe
   return apiFetch<QuarantineRecord>(`/quarantine/${eventId}`);
 }
 
-export async function approveOverride(
-  eventId:      string,
-  reason:       string,
-  reviewer:     string,
-  corrections?: Record<string, unknown>,
-): Promise<{ success: boolean; contract_id: string }> {
-  const payload: Record<string, unknown> = { reason, reviewer };
-  if (corrections && Object.keys(corrections).length > 0) {
-    payload.corrections = corrections;
-  }
-  return apiFetch(`/quarantine/${eventId}/approve`, {
-    method: "POST",
-    body:   JSON.stringify(payload),
-  });
-}
-
-export async function rejectQuarantine(
-  eventId:  string,
-  reason:   string,
-  reviewer: string,
-): Promise<{ success: boolean }> {
-  return apiFetch(`/quarantine/${eventId}/reject`, {
-    method: "POST",
-    body:   JSON.stringify({ reason, reviewer }),
-  });
-}
-
 // ── Contracts ─────────────────────────────────────────────────────────────────
 
 export async function listContracts(): Promise<ContractSummary[]> {

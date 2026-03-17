@@ -6,6 +6,7 @@ Full implementation in Phase F (remaining flows).
 """
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.logging import configure_logging, get_logger
 
@@ -15,6 +16,7 @@ logger = get_logger(__name__)
 mcp = FastMCP(
     "crm-sim",
     instructions="Simulated CRM — stub server for Phase 0/D.",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 
