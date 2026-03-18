@@ -181,13 +181,13 @@ sequenceDiagram
     LLAS-->>Agent: LLAS account data
 
     Agent->>VAL: validate_event(event + context)
-    VAL->>VAL: ❌ INVALID_INTEREST_RATE detected
+    VAL->>VAL: INVALID_INTEREST_RATE detected
     VAL->>PG: INSERT validation.quarantine (status=pending)
     VAL-->>Agent: ValidationResult(valid=false, failures=[...])
 
     Note over Agent: Checkpoint: QUARANTINED
     Note over Agent: Release lock + ACK event
-    Note over Agent: ❌ Nothing written to ledger
+    Note over Agent: Nothing written to ledger
 
     Note over UI: Dashboard (read-only audit trail)
     UI->>DA: GET /api/quarantine (polling every 10s)
@@ -242,11 +242,11 @@ sequenceDiagram
         VAL->>VAL: Quarantine BOTH events (status=conflict, conflict_pair_id=uuid)
         VAL-->>Agent: ValidationResult(valid=false, code=CONFLICT_PENDING)
         Note over Agent: Checkpoint: QUARANTINED_CONFLICT
-        Note over Agent: ❌ Neither update proceeds to LLAS
+        Note over Agent: Neither update proceeds to LLAS
     else Invalid — other rule failure
         VAL-->>Agent: ValidationResult(valid=false, failures=[...])
         Note over Agent: Checkpoint: QUARANTINED
-        Note over Agent: ❌ Update blocked — source must fix and resubmit
+        Note over Agent: Update blocked — source must fix and resubmit
     end
 
     Note over Agent: Release lock + ACK event
@@ -313,11 +313,11 @@ sequenceDiagram
     LED->>LED: 3. Check contract_id claim == record.contract_id
     LED->>PG: 4. SELECT FROM validation.used_proof_tokens WHERE jti=?
     alt jti already used
-        LED-->>Agent: ❌ Error: PROOF_TOKEN_ALREADY_USED
+        LED-->>Agent: Error: PROOF_TOKEN_ALREADY_USED
     else jti not used + all checks pass
         LED->>PG: INSERT contracts.records (with proof_token_jti)
         LED->>PG: INSERT validation.used_proof_tokens (mark used)
-        LED-->>Agent: ✅ RecordWritten
+        LED-->>Agent: RecordWritten
     end
 ```
 
@@ -371,10 +371,6 @@ stateDiagram-v2
     IN_REPOSSESSION --> CHARGED_OFF: repossession completed
     PAID_OFF --> TITLE_RELEASED: title release conditions met
     CHARGED_OFF --> [*]: End of lifecycle
-
-    note right of ORIGINATED: Write guard ON = stops here (Phase 0)
-    note right of ACTIVE: Most events happen here
-    note right of TITLE_RELEASED: Final state — contract complete
 ```
 
 ---
