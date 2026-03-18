@@ -166,6 +166,7 @@ sequenceDiagram
     participant OL as Oracle LOS (sim)
     participant Bus as Redis Streams
     participant Agent as AI Agent
+    participant LLAS as LLAS Sim
     participant VAL as Validation Engine
     participant PG as PostgreSQL
     participant DA as Dashboard API
