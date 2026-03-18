@@ -21,6 +21,12 @@ export default function NavBar() {
           Contracts
         </Link>
         <Link
+          href="/conflicts"
+          className="text-blue-100 hover:text-white text-sm font-medium"
+        >
+          Conflicts
+        </Link>
+        <Link
           href="/reports"
           className="text-blue-100 hover:text-white text-sm font-medium"
         >

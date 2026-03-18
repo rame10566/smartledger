@@ -6,14 +6,17 @@ Reads from PostgreSQL directly and calls Ledger / Validation MCP servers.
 
 Endpoints:
   GET  /api/health
-  GET  /api/quarantine             — list pending quarantined events
-  GET  /api/quarantine/{event_id}  — single quarantine record
-  POST /api/quarantine/{event_id}/approve  — human approves override
-  POST /api/quarantine/{event_id}/reject   — human rejects
+  GET  /api/quarantine                              — list quarantined events
+  GET  /api/quarantine/{event_id}                   — single quarantine record
+  POST /api/quarantine/{event_id}/approve           — human approves override
+  POST /api/quarantine/{event_id}/reject            — human rejects
+  GET  /api/conflicts                               — list active conflict pairs (LLAS Admin)
+  GET  /api/conflicts/{conflict_pair_id}            — side-by-side comparison + LLAS profile
+  POST /api/conflicts/{conflict_pair_id}/resolve    — select winning value (LLAS Admin)
   GET  /api/contracts/{contract_id}/lifecycle
   GET  /api/contracts/{contract_id}/audit
   GET  /api/contracts/{contract_id}/state
-  GET  /api/contracts              — list contracts (recent)
+  GET  /api/contracts                               — list contracts (recent)
 
 CORS is open for POC (Dashboard UI is on :3000, API on :8000).
 """
@@ -28,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
 
-from dashboard_api.routers import contracts, quarantine, reports
+from dashboard_api.routers import conflicts, contracts, quarantine, reports
 
 settings = get_settings()
 configure_logging(service_name="dashboard-api", log_level=settings.log_level)
@@ -81,6 +84,7 @@ app.add_middleware(
 )
 
 app.include_router(quarantine.router, prefix="/api")
+app.include_router(conflicts.router,  prefix="/api")
 app.include_router(contracts.router,  prefix="/api")
 app.include_router(reports.router,    prefix="/api")
 

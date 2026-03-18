@@ -140,17 +140,20 @@ CREATE TABLE IF NOT EXISTS validation.quarantine (
     rejection_detail TEXT,
     context_snapshot JSONB,                 -- all cross-system data the agent gathered
     original_payload JSONB NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected | escalated
+    status          TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected | escalated | conflict | resolved
     escalation_level INTEGER NOT NULL DEFAULT 0,      -- 0=operator, 1=team_lead, 2=manager
     reviewed_by     TEXT,
     reviewed_at     TIMESTAMPTZ,
     override_reason TEXT,
+    conflict_pair_id TEXT,                            -- links two quarantine rows that conflict on same field
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     sla_deadline    TIMESTAMPTZ NOT NULL    -- created_at + 24h for first escalation
 );
 
 CREATE INDEX IF NOT EXISTS idx_quarantine_status ON validation.quarantine(status);
 CREATE INDEX IF NOT EXISTS idx_quarantine_contract ON validation.quarantine(contract_id);
+CREATE INDEX IF NOT EXISTS idx_quarantine_conflict ON validation.quarantine(conflict_pair_id)
+    WHERE conflict_pair_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_quarantine_sla ON validation.quarantine(sla_deadline)
     WHERE status = 'pending';
 

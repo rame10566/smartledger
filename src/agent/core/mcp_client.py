@@ -200,6 +200,28 @@ class LLASClient:
         return await call_tool(self._url(), "get_payment_history",
                                {"contract_id": contract_id, "limit": limit})
 
+    async def get_customer_profile(self, contract_id: str) -> dict:
+        return await call_tool(self._url(), "get_customer_profile",
+                               {"contract_id": contract_id})
+
+    async def update_customer_profile(
+        self,
+        contract_id: str,
+        changes: dict,
+        validated_by: str = "smartledger",
+        source_system: str = "",
+    ) -> dict:
+        return await call_tool(self._url(), "update_customer_profile", {
+            "contract_id":   contract_id,
+            "changes":       changes,
+            "validated_by":  validated_by,
+            "source_system": source_system,
+        })
+
+    async def get_payment_info(self, contract_id: str) -> dict:
+        return await call_tool(self._url(), "get_payment_info",
+                               {"contract_id": contract_id})
+
 
 class ValidationClient:
     """MCP client for the Validation Engine (port 8001)."""
@@ -212,6 +234,24 @@ class ValidationClient:
     async def get_quarantined(self, contract_id: str | None = None) -> list:
         return _as_list(await call_tool(self._url(), "get_quarantined",
                                         {"contract_id": contract_id}))
+
+    async def get_conflicts(self, contract_id: str | None = None) -> list:
+        return _as_list(await call_tool(self._url(), "get_conflicts",
+                                        {"contract_id": contract_id}))
+
+    async def resolve_conflict(
+        self,
+        conflict_pair_id: str,
+        winning_event_id: str,
+        admin_id: str,
+        reason: str,
+    ) -> dict:
+        return await call_tool(self._url(), "resolve_conflict", {
+            "conflict_pair_id": conflict_pair_id,
+            "winning_event_id": winning_event_id,
+            "admin_id":         admin_id,
+            "reason":           reason,
+        })
 
 
 class LedgerClient:
@@ -371,14 +411,64 @@ class PricingEngineClient:
         return await call_tool(self._url(), "get_pricing_factors", {})
 
 
+class IntegrationSystemClient:
+    """MCP client for the Integration System simulator (port 8022)."""
+    _url = lambda self: settings.mcp_integration_url
+
+    async def submit_contact_update(
+        self,
+        contract_id: str,
+        source_system: str,
+        changes: dict,
+        source_ref: str = "",
+    ) -> dict:
+        return await call_tool(self._url(), "submit_contact_update", {
+            "contract_id":   contract_id,
+            "source_system": source_system,
+            "changes":       changes,
+            "source_ref":    source_ref,
+        })
+
+    async def submit_payment_update(
+        self,
+        contract_id: str,
+        source_system: str,
+        changes: dict,
+        source_ref: str = "",
+    ) -> dict:
+        return await call_tool(self._url(), "submit_payment_update", {
+            "contract_id":   contract_id,
+            "source_system": source_system,
+            "changes":       changes,
+            "source_ref":    source_ref,
+        })
+
+    async def update_integration_status(
+        self,
+        integration_ref: str,
+        status: str,
+        detail: str = "",
+    ) -> dict:
+        return await call_tool(self._url(), "update_integration_status", {
+            "integration_ref": integration_ref,
+            "status":          status,
+            "detail":          detail,
+        })
+
+    async def get_integration_status(self, integration_ref: str) -> dict:
+        return await call_tool(self._url(), "get_integration_status",
+                               {"integration_ref": integration_ref})
+
+
 # ── Module-level singleton clients ────────────────────────────────────────────
 
-oracle_los     = OracleLOSClient()
-llas           = LLASClient()
-validation     = ValidationClient()
-ledger         = LedgerClient()
-payment        = PaymentClient()
-semantic_ai    = SemanticAIClient()
-reporting      = ReportingClient()
-rules_engine   = RulesEngineClient()
-pricing_engine = PricingEngineClient()
+oracle_los          = OracleLOSClient()
+llas                = LLASClient()
+validation          = ValidationClient()
+ledger              = LedgerClient()
+payment             = PaymentClient()
+semantic_ai         = SemanticAIClient()
+reporting           = ReportingClient()
+rules_engine        = RulesEngineClient()
+pricing_engine      = PricingEngineClient()
+integration_system  = IntegrationSystemClient()

@@ -1,7 +1,7 @@
 """
 Simulated Systems Launcher
 
-Starts all 12 simulated MCP servers in separate processes.
+Starts all 13 simulated MCP servers in separate processes.
 Used by the Docker container (mcp-simulated service) and local dev.
 
 Servers:
@@ -17,6 +17,7 @@ Servers:
   8019 — IVR
   8020 — Rules Engine
   8021 — Pricing Engine
+  8022 — Integration System
 """
 
 import multiprocessing
@@ -50,23 +51,25 @@ def _run_dealer()          -> None: _run_server("mcp_servers.simulated.dealer.se
 def _run_customer_portal() -> None: _run_server("mcp_servers.simulated.customer_portal.server", 8017)
 def _run_mobile_app()      -> None: _run_server("mcp_servers.simulated.mobile_app.server",      8018)
 def _run_ivr()             -> None: _run_server("mcp_servers.simulated.ivr.server",             8019)
-def _run_rules_engine()    -> None: _run_server("mcp_servers.simulated.rules_engine.server",    8020)
-def _run_pricing_engine()  -> None: _run_server("mcp_servers.simulated.pricing_engine.server",  8021)
+def _run_rules_engine()       -> None: _run_server("mcp_servers.simulated.rules_engine.server",       8020)
+def _run_pricing_engine()     -> None: _run_server("mcp_servers.simulated.pricing_engine.server",     8021)
+def _run_integration_system() -> None: _run_server("mcp_servers.simulated.integration.server",        8022)
 
 
 _SERVERS = [
-    ("oracle_los",      8010, _run_oracle_los),
-    ("salesforce_los",  8011, _run_salesforce_los),
-    ("llas",            8012, _run_llas),
-    ("crm",             8013, _run_crm),
-    ("payment",         8014, _run_payment),
-    ("insurance",       8015, _run_insurance),
-    ("dealer",          8016, _run_dealer),
-    ("customer_portal", 8017, _run_customer_portal),
-    ("mobile_app",      8018, _run_mobile_app),
-    ("ivr",             8019, _run_ivr),
-    ("rules_engine",    8020, _run_rules_engine),
-    ("pricing_engine",  8021, _run_pricing_engine),
+    ("oracle_los",         8010, _run_oracle_los),
+    ("salesforce_los",     8011, _run_salesforce_los),
+    ("llas",               8012, _run_llas),
+    ("crm",                8013, _run_crm),
+    ("payment",            8014, _run_payment),
+    ("insurance",          8015, _run_insurance),
+    ("dealer",             8016, _run_dealer),
+    ("customer_portal",    8017, _run_customer_portal),
+    ("mobile_app",         8018, _run_mobile_app),
+    ("ivr",                8019, _run_ivr),
+    ("rules_engine",       8020, _run_rules_engine),
+    ("pricing_engine",     8021, _run_pricing_engine),
+    ("integration_system", 8022, _run_integration_system),
 ]
 
 

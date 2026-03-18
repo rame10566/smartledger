@@ -38,9 +38,12 @@ from mcp.client.streamable_http import streamablehttp_client
 # ---------------------------------------------------------------------------
 # Config (override via CLI or env vars)
 # ---------------------------------------------------------------------------
-ORACLE_LOS_URL = os.getenv("MCP_ORACLE_LOS_URL", "http://localhost:8010/mcp")
-LEDGER_URL     = os.getenv("MCP_LEDGER_URL",     "http://localhost:8002/mcp")
-REDIS_URL      = os.getenv("REDIS_URL",           "redis://localhost:6379")
+ORACLE_LOS_URL    = os.getenv("MCP_ORACLE_LOS_URL",    "http://localhost:8010/mcp")
+LEDGER_URL        = os.getenv("MCP_LEDGER_URL",        "http://localhost:8002/mcp")
+CRM_URL           = os.getenv("MCP_CRM_URL",           "http://localhost:8013/mcp")
+PORTAL_URL        = os.getenv("MCP_PORTAL_URL",        "http://localhost:8017/mcp")
+INTEGRATION_URL   = os.getenv("MCP_INTEGRATION_URL",   "http://localhost:8022/mcp")
+REDIS_URL         = os.getenv("REDIS_URL",             "redis://localhost:6379")
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +204,26 @@ QUARANTINE_CONTRACT = {
 # Poll ledger until origination record appears
 # ---------------------------------------------------------------------------
 
+async def _wait_for_integration(integration_ref: str, timeout: int = 20) -> bool:
+    """Poll Integration System until the submission reaches 'validated' or 'quarantined'."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        elapsed = timeout - (deadline - time.time())
+        sys.stdout.write(f"\r      Polling integration status {integration_ref}... {elapsed:.0f}s/{timeout}s   ")
+        sys.stdout.flush()
+        await asyncio.sleep(2)
+        try:
+            status = await _mcp_call(INTEGRATION_URL, "get_integration_status",
+                                     {"integration_ref": integration_ref})
+            if isinstance(status, dict) and status.get("status") in ("validated", "quarantined", "conflict"):
+                sys.stdout.write("\r" + " " * 70 + "\r")
+                return True
+        except Exception:
+            pass
+    sys.stdout.write("\r" + " " * 70 + "\r")
+    return False
+
+
 async def _wait_for_ledger(contract_id: str, timeout: int = 30) -> bool:
     """Poll Ledger MCP until an origination record appears. Returns True on success."""
     deadline = time.time() + timeout
@@ -264,7 +287,163 @@ async def _clean_stale_data(redis_url: str) -> None:
         await r.aclose()
 
 
-async def main(wait: bool, clean: bool = False) -> None:
+async def _seed_integration_scenarios(wait: bool) -> None:
+    """
+    Phase H integration scenarios:
+      A — Clean CRM address update (ORC-2024-001, James Carter)
+      B — Customer Portal payment method update (ORC-2024-001)
+      C — CRM + Portal concurrent address conflict (ORC-2024-002, Maria Gonzalez)
+      D — Oracle LOS stale sync (ORC-2024-001) → STALE_LOS_SYNC quarantine
+    """
+    print("\n── Phase H Integration Scenarios ────────────────────────────────\n")
+
+    # ── Scenario A: Clean CRM address update ─────────────────────────────────
+    print("  [A] Clean CRM address update (ORC-2024-001 / James Carter)")
+    try:
+        sr = await _mcp_call(CRM_URL, "create_service_request", {
+            "customer_id": "CUST-001",
+            "sr_type":     "CONTACT_UPDATE",
+            "changes": {
+                "address": {
+                    "street":  "456 Oak Avenue",
+                    "city":    "Dallas",
+                    "state":   "TX",
+                    "zip":     "75201",
+                    "country": "USA",
+                }
+            },
+            "notes": "Customer requested address change — verified by phone",
+        })
+        sr_id = sr.get("sr_id", "?") if isinstance(sr, dict) else "?"
+        print(f"       SR created: {sr_id}")
+
+        complete = await _mcp_call(CRM_URL, "complete_service_request", {
+            "sr_id":        sr_id,
+            "contract_id":  "ORC-2024-001",
+        })
+        int_ref = complete.get("integration_ref", "") if isinstance(complete, dict) else ""
+        print(f"       SR completed → integration_ref={int_ref}")
+
+        if wait and int_ref:
+            ok = await _wait_for_integration(int_ref)
+            status_result = await _mcp_call(INTEGRATION_URL, "get_integration_status",
+                                             {"integration_ref": int_ref})
+            final = status_result.get("status", "?") if isinstance(status_result, dict) else "?"
+            print(f"       Final status: {final}")
+    except Exception as e:
+        print(f"       ✗ Scenario A failed: {e}")
+
+    await asyncio.sleep(0.5)
+
+    # ── Scenario B: Portal payment method update ──────────────────────────────
+    print("\n  [B] Portal payment method update (ORC-2024-001)")
+    try:
+        portal_result = await _mcp_call(PORTAL_URL, "update_payment_method", {
+            "contract_id":  "ORC-2024-001",
+            "customer_id":  "CUST-001",
+            "changes": {
+                "bank_name":       "Chase Bank",
+                "account_last4":   "7821",
+                "routing_number":  "021000021",
+                "payment_day":     15,
+            },
+        })
+        int_ref_b = portal_result.get("integration_ref", "") if isinstance(portal_result, dict) else ""
+        print(f"       Portal update submitted → integration_ref={int_ref_b}")
+
+        if wait and int_ref_b:
+            await _wait_for_integration(int_ref_b)
+            status_result = await _mcp_call(INTEGRATION_URL, "get_integration_status",
+                                             {"integration_ref": int_ref_b})
+            final = status_result.get("status", "?") if isinstance(status_result, dict) else "?"
+            print(f"       Final status: {final}")
+    except Exception as e:
+        print(f"       ✗ Scenario B failed: {e}")
+
+    await asyncio.sleep(0.5)
+
+    # ── Scenario C: Concurrent conflict — CRM + Portal address update ─────────
+    # Both submit address changes to ORC-2024-002 at the same time
+    # The second one should detect a CONFLICT_PENDING and both get quarantined
+    print("\n  [C] Concurrent conflict: CRM + Portal both update address (ORC-2024-002)")
+    try:
+        # Source A: CRM submits address update
+        sr_c = await _mcp_call(CRM_URL, "create_service_request", {
+            "customer_id": "CUST-002",
+            "sr_type":     "CONTACT_UPDATE",
+            "changes": {
+                "address": {
+                    "street":  "789 River Road",
+                    "city":    "Austin",
+                    "state":   "TX",
+                    "zip":     "73301",
+                    "country": "USA",
+                }
+            },
+            "notes": "Agent verified mailing address",
+        })
+        sr_id_c = sr_c.get("sr_id", "?") if isinstance(sr_c, dict) else "?"
+        complete_c = await _mcp_call(CRM_URL, "complete_service_request", {
+            "sr_id":       sr_id_c,
+            "contract_id": "ORC-2024-002",
+        })
+        int_ref_c1 = complete_c.get("integration_ref", "") if isinstance(complete_c, dict) else ""
+        print(f"       CRM submission → integration_ref={int_ref_c1}")
+
+        # Source B: Portal submits a different address update immediately after
+        portal_c = await _mcp_call(PORTAL_URL, "update_contact_info", {
+            "contract_id": "ORC-2024-002",
+            "customer_id": "CUST-002",
+            "changes": {
+                "address": {
+                    "street":  "100 Congress Ave",
+                    "city":    "Austin",
+                    "state":   "TX",
+                    "zip":     "78701",
+                    "country": "USA",
+                }
+            },
+        })
+        int_ref_c2 = portal_c.get("integration_ref", "") if isinstance(portal_c, dict) else ""
+        print(f"       Portal submission → integration_ref={int_ref_c2}")
+        print(f"       (SmartLedger will detect CONFLICT_PENDING — both quarantined)")
+
+        if wait and int_ref_c2:
+            await _wait_for_integration(int_ref_c2, timeout=25)
+            for iref in [int_ref_c1, int_ref_c2]:
+                status_result = await _mcp_call(INTEGRATION_URL, "get_integration_status",
+                                                 {"integration_ref": iref})
+                final = status_result.get("status", "?") if isinstance(status_result, dict) else "?"
+                print(f"       {iref} → {final}")
+    except Exception as e:
+        print(f"       ✗ Scenario C failed: {e}")
+
+    await asyncio.sleep(0.5)
+
+    # ── Scenario D: Oracle LOS stale sync ────────────────────────────────────
+    # ORC-2024-001 was already updated via CRM (Scenario A).
+    # Syncing the original LOS data now should be rejected as STALE_LOS_SYNC.
+    print("\n  [D] Oracle LOS stale sync (ORC-2024-001) → expect STALE_LOS_SYNC")
+    try:
+        sync_result = await _mcp_call(ORACLE_LOS_URL, "sync_to_llas", {
+            "contract_id": "ORC-2024-001",
+        })
+        int_ref_d = sync_result.get("integration_ref", "") if isinstance(sync_result, dict) else ""
+        print(f"       Oracle LOS sync submitted → integration_ref={int_ref_d}")
+
+        if wait and int_ref_d:
+            await _wait_for_integration(int_ref_d)
+            status_result = await _mcp_call(INTEGRATION_URL, "get_integration_status",
+                                             {"integration_ref": int_ref_d})
+            final = status_result.get("status", "?") if isinstance(status_result, dict) else "?"
+            print(f"       Final status: {final}  (expected: quarantined / STALE_LOS_SYNC)")
+    except Exception as e:
+        print(f"       ✗ Scenario D failed (LOS may not have ORC-2024-001): {e}")
+
+    print()
+
+
+async def main(wait: bool, clean: bool = False, integration: bool = True) -> None:
     print("╔══════════════════════════════════════════════════════════════╗")
     print("║         SmartLedger — Governance Dashboard Seed             ║")
     print("╚══════════════════════════════════════════════════════════════╝\n")
@@ -362,6 +541,10 @@ async def main(wait: bool, clean: bool = False) -> None:
     else:
         print(f"\n  (Skipping ledger poll — run with --wait to confirm E2E completion)")
 
+    # ── Integration layer scenarios (Phase H) ────────────────────────────────
+    if integration:
+        await _seed_integration_scenarios(wait)
+
     # ── Summary ──────────────────────────────────────────────────────────────
     print("\n╔══════════════════════════════════════════════════════════════╗")
     print("║                         Done!                               ║")
@@ -369,6 +552,7 @@ async def main(wait: bool, clean: bool = False) -> None:
     print("║  Open the dashboard:                                        ║")
     print("║    Contracts  → http://localhost:3000/contracts             ║")
     print("║    Quarantine → http://localhost:3000/quarantine            ║")
+    print("║    Conflicts  → http://localhost:3000/conflicts             ║")
     print("║    Reports    → http://localhost:3000/reports               ║")
     print("╠══════════════════════════════════════════════════════════════╣")
     print("║  Agent logs:                                                ║")
@@ -380,9 +564,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed SmartLedger demo data")
     parser.add_argument("--no-wait", dest="wait", action="store_false",
                         default=True,
-                        help="Don't poll ledger for confirmation — just publish and exit")
+                        help="Don't poll for confirmation — just publish and exit")
     parser.add_argument("--clean", action="store_true",
                         help="Wipe all stale data (PostgreSQL + Redis) before seeding")
+    parser.add_argument("--no-integration", dest="integration", action="store_false",
+                        default=True,
+                        help="Skip Phase H integration layer scenarios")
     parser.add_argument("--redis", default=REDIS_URL,
                         help=f"Redis URL (default: {REDIS_URL})")
     parser.add_argument("--oracle-los", default=ORACLE_LOS_URL,
@@ -393,4 +580,4 @@ if __name__ == "__main__":
     ORACLE_LOS_URL = args.oracle_los
     REDIS_URL      = args.redis
 
-    asyncio.run(main(wait=args.wait, clean=args.clean))
+    asyncio.run(main(wait=args.wait, clean=args.clean, integration=args.integration))

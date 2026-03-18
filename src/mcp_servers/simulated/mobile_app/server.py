@@ -24,6 +24,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
+from shared.mcp_caller import MCPCallError, call_mcp_tool
 from shared.models.common import EventType, SourceSystem
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
@@ -264,6 +265,93 @@ async def get_notifications(customer_id: str) -> dict:
         "customer_id": customer_id,
         "notifications": notifs,
         "unread_count": sum(1 for n in notifs if not n.get("read", True)),
+    }
+
+
+@mcp.tool()
+async def update_contact_info(
+    contract_id: str,
+    customer_id: str,
+    changes: dict,
+) -> dict:
+    """
+    Self-service contact/address update from the mobile app.
+
+    Submits the change to the Integration System for SmartLedger validation
+    before LLAS is updated.
+
+    Args:
+        contract_id: the contract to update
+        customer_id: the mobile user making the change
+        changes:     dict with address and/or contact keys
+
+    Returns: {success, integration_ref, status}
+    """
+    session_ref = f"MOBILE-SESSION-{uuid.uuid4().hex[:8].upper()}"
+    try:
+        result = await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_contact_update",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.MOBILE_APP,
+                "changes":       changes,
+                "source_ref":    session_ref,
+            },
+        )
+    except MCPCallError as e:
+        logger.error("mobile_contact_update_failed", customer_id=customer_id, error=str(e))
+        return {"success": False, "reason": f"Integration System unavailable: {e}"}
+
+    integration_ref = result.get("integration_ref", "") if isinstance(result, dict) else ""
+    logger.info("mobile_contact_update_submitted", customer_id=customer_id, contract_id=contract_id)
+    return {
+        "success":         bool(integration_ref),
+        "integration_ref": integration_ref,
+        "status":          "pending_validation",
+        "note":            "SmartLedger will validate before LLAS is updated",
+    }
+
+
+@mcp.tool()
+async def update_payment_method(
+    contract_id: str,
+    customer_id: str,
+    changes: dict,
+) -> dict:
+    """
+    Self-service payment method update from the mobile app.
+
+    Args:
+        contract_id: the contract to update
+        customer_id: the mobile user making the change
+        changes:     dict with payment_info fields
+
+    Returns: {success, integration_ref, status}
+    """
+    session_ref = f"MOBILE-SESSION-{uuid.uuid4().hex[:8].upper()}"
+    try:
+        result = await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_payment_update",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.MOBILE_APP,
+                "changes":       {"payment_info": changes},
+                "source_ref":    session_ref,
+            },
+        )
+    except MCPCallError as e:
+        logger.error("mobile_payment_update_failed", customer_id=customer_id, error=str(e))
+        return {"success": False, "reason": f"Integration System unavailable: {e}"}
+
+    integration_ref = result.get("integration_ref", "") if isinstance(result, dict) else ""
+    logger.info("mobile_payment_method_submitted", customer_id=customer_id, contract_id=contract_id)
+    return {
+        "success":         bool(integration_ref),
+        "integration_ref": integration_ref,
+        "status":          "pending_validation",
+        "note":            "SmartLedger will validate before LLAS is updated",
     }
 
 

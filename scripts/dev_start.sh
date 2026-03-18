@@ -122,6 +122,7 @@ cmd_start() {
     echo "    Ledger MCP        http://localhost:8002"
     echo "    Oracle LOS sim    http://localhost:8010"
     echo "    LLAS sim          http://localhost:8012"
+    echo "    Integration sys   http://localhost:8022"
     echo "    Agent             (consuming Redis Stream)"
     echo ""
     echo "  Commands:"

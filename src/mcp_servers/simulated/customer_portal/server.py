@@ -25,6 +25,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
+from shared.mcp_caller import MCPCallError, call_mcp_tool
 from shared.models.common import EventType, SourceSystem
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
@@ -327,6 +328,123 @@ async def get_portal_activity(customer_id: str, limit: int = 10) -> dict:
     activity = _activity_log.get(customer_id, [])
     sorted_activity = sorted(activity, key=lambda a: a.get("timestamp", ""), reverse=True)
     return {"found": True, "customer_id": customer_id, "activity": sorted_activity[:limit]}
+
+
+@mcp.tool()
+async def update_contact_info(
+    contract_id: str,
+    customer_id: str,
+    changes: dict,
+) -> dict:
+    """
+    Self-service contact/address update from the customer portal.
+
+    The portal submits the change to the Integration System, which publishes
+    an event for SmartLedger to validate before LLAS is updated.
+
+    Args:
+        contract_id: the contract whose profile is being updated
+        customer_id: the portal user making the change
+        changes:     dict with address and/or contact keys (partial updates allowed)
+
+    Returns: {success, integration_ref, status}
+    """
+    user = _PORTAL_USERS.get(customer_id)
+    if not user:
+        return {"success": False, "reason": f"Customer '{customer_id}' not found in portal"}
+    if contract_id not in user.get("contracts", []):
+        return {"success": False, "reason": f"Contract '{contract_id}' not associated with customer"}
+
+    session_ref = f"PORTAL-SESSION-{uuid.uuid4().hex[:8].upper()}"
+    try:
+        result = await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_contact_update",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.CUSTOMER_PORTAL,
+                "changes":       changes,
+                "source_ref":    session_ref,
+            },
+        )
+    except MCPCallError as e:
+        logger.error("portal_contact_update_failed", customer_id=customer_id, error=str(e))
+        return {"success": False, "reason": f"Integration System unavailable: {e}"}
+
+    integration_ref = result.get("integration_ref", "") if isinstance(result, dict) else ""
+    if customer_id not in _activity_log:
+        _activity_log[customer_id] = []
+    _activity_log[customer_id].append({
+        "action":          "contact_update_submitted",
+        "contract_id":     contract_id,
+        "integration_ref": integration_ref,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info("portal_contact_update_submitted", customer_id=customer_id, contract_id=contract_id)
+    return {
+        "success":         bool(integration_ref),
+        "integration_ref": integration_ref,
+        "status":          "pending_validation",
+        "note":            "SmartLedger will validate before LLAS is updated",
+    }
+
+
+@mcp.tool()
+async def update_payment_method(
+    contract_id: str,
+    customer_id: str,
+    changes: dict,
+) -> dict:
+    """
+    Self-service payment method update from the customer portal.
+
+    Args:
+        contract_id: the contract to update
+        customer_id: the portal user making the change
+        changes:     dict with payment_info fields (method, bank_account_last4, payment_date, etc.)
+
+    Returns: {success, integration_ref, status}
+    """
+    user = _PORTAL_USERS.get(customer_id)
+    if not user:
+        return {"success": False, "reason": f"Customer '{customer_id}' not found in portal"}
+    if contract_id not in user.get("contracts", []):
+        return {"success": False, "reason": f"Contract '{contract_id}' not associated with customer"}
+
+    session_ref = f"PORTAL-SESSION-{uuid.uuid4().hex[:8].upper()}"
+    try:
+        result = await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_payment_update",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.CUSTOMER_PORTAL,
+                "changes":       {"payment_info": changes},
+                "source_ref":    session_ref,
+            },
+        )
+    except MCPCallError as e:
+        logger.error("portal_payment_update_failed", customer_id=customer_id, error=str(e))
+        return {"success": False, "reason": f"Integration System unavailable: {e}"}
+
+    integration_ref = result.get("integration_ref", "") if isinstance(result, dict) else ""
+    if customer_id not in _activity_log:
+        _activity_log[customer_id] = []
+    _activity_log[customer_id].append({
+        "action":          "payment_method_updated",
+        "contract_id":     contract_id,
+        "integration_ref": integration_ref,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info("portal_payment_method_submitted", customer_id=customer_id, contract_id=contract_id)
+    return {
+        "success":         bool(integration_ref),
+        "integration_ref": integration_ref,
+        "status":          "pending_validation",
+        "note":            "SmartLedger will validate before LLAS is updated",
+    }
 
 
 @mcp.tool()

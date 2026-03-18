@@ -139,6 +139,7 @@ services:
       - "8019:8019"   # ivr
       - "8020:8020"   # rules_engine
       - "8021:8021"   # pricing_engine
+      - "8022:8022"   # integration_system
     depends_on:
       redis:
         condition: service_healthy
@@ -163,6 +164,7 @@ services:
       - MCP_PAYMENT_URL=http://mcp-simulated:8014/mcp
       - MCP_RULES_ENGINE_URL=http://mcp-simulated:8020/mcp
       - MCP_PRICING_ENGINE_URL=http://mcp-simulated:8021/mcp
+      - MCP_INTEGRATION_URL=http://mcp-simulated:8022/mcp
       - PHASE=${PHASE:-0}
       - SERVICE_NAME=agent
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -188,6 +190,7 @@ services:
       - MCP_LEDGER_URL=http://mcp-ledger:8002/mcp
       - MCP_VALIDATION_URL=http://mcp-validation:8001/mcp
       - MCP_REPORTING_URL=http://mcp-reporting:8004/mcp
+      - MCP_LLAS_URL=http://mcp-simulated:8012/mcp
       - SERVICE_NAME=dashboard-api
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:

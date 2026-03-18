@@ -36,6 +36,7 @@ from shared.logging import configure_logging, get_logger
 
 from agent.core.event_loop import AgentEventLoop
 from agent.core.saga import SagaManager
+from agent.flows.customer_update_flow import CustomerUpdateFlow
 from agent.flows.origination import OriginationFlow
 from agent.flows.payment import PaymentFlow
 from agent.flows.pdf_ingestion import PDFIngestionFlow
@@ -125,6 +126,14 @@ async def main() -> None:
     # PDF ingestion flow
     pdf_ingestion_flow = PDFIngestionFlow()
     event_loop.register_flow("dealer.pdf_submitted", pdf_ingestion_flow)
+
+    # Customer profile update flows (Integration Layer — Phase H)
+    customer_update_flow = CustomerUpdateFlow()
+    event_loop.register_flow("integration.contact_update_requested", customer_update_flow)
+    event_loop.register_flow("integration.payment_update_requested", customer_update_flow)
+    event_loop.register_flow("integration.insurance_update_requested", customer_update_flow)
+    event_loop.register_flow("integration.llas_sync_requested", customer_update_flow)
+    event_loop.register_flow("integration.conflict_resolved", customer_update_flow)
 
     # Setup Redis Streams consumer group
     await event_loop.setup()

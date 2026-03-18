@@ -140,6 +140,58 @@ export async function getAuditTrail(contractId: string): Promise<AuditEntry[]> {
   return apiFetch<AuditEntry[]>(`/contracts/${contractId}/audit`);
 }
 
+// ── Conflicts ─────────────────────────────────────────────────────────────────
+
+export interface ConflictSide {
+  event_id:         string;
+  contract_id:      string;
+  event_type:       string;
+  source_system:    string;
+  rejection_code:   string;
+  rejection_detail: string | null;
+  original_payload: Record<string, unknown> | null;
+  status:           string;
+  conflict_pair_id: string;
+  created_at:       string;
+}
+
+export interface ConflictPair {
+  conflict_pair_id: string;
+  contract_id:      string;
+  side_a:           ConflictSide | null;
+  side_b:           ConflictSide | null;
+  current_llas:     Record<string, unknown>;
+}
+
+export interface ConflictSummary {
+  conflict_pair_id: string;
+  contract_id:      string;
+  source_a:         string;
+  source_b:         string;
+  fields:           string[];
+  created_at:       string;
+}
+
+export async function listConflicts(contractId?: string): Promise<ConflictSummary[]> {
+  const qs = contractId ? `?contract_id=${contractId}` : "";
+  return apiFetch<ConflictSummary[]>(`/conflicts${qs}`);
+}
+
+export async function getConflict(conflictPairId: string): Promise<ConflictPair> {
+  return apiFetch<ConflictPair>(`/conflicts/${conflictPairId}`);
+}
+
+export async function resolveConflict(
+  conflictPairId:  string,
+  winningEventId:  string,
+  reason:          string,
+): Promise<{ success: boolean; stream_entry_id?: string }> {
+  return apiFetch(`/conflicts/${conflictPairId}/resolve`, {
+    method: "POST",
+    body:   JSON.stringify({ winning_event_id: winningEventId, reason }),
+  });
+}
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 
 export interface ReportType {

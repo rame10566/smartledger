@@ -77,6 +77,36 @@ class AccountingRecord(BaseModel):
     saga_id:          UUID
 
 
+class FieldChange(BaseModel):
+    """A single field change in a customer profile update."""
+    field:     str
+    old_value: str | None = None
+    new_value: str
+
+
+class CustomerUpdateRecord(BaseModel):
+    """
+    Validated customer profile update record for the immutable ledger.
+    Written when a CRM SR, portal self-service, or LOS sync changes customer data in LLAS.
+    No PII values stored on-chain — field names only.
+    """
+    record_id:        UUID
+    contract_id:      str
+    source_system:    SourceSystem
+    source_reference: str  = Field(description="SR number, session ID, or LOS ref from originating system")
+    integration_ref:  str  = Field(description="UUID issued by Integration System for this submission")
+    change_type:      Literal["contact_update", "payment_update", "insurance_update", "llas_sync"]
+    field_names:      list[str] = Field(description="Names of changed fields (values not stored on-chain)")
+    conflict_pair_id: str | None = None
+    resolved_by:      str | None = None
+    resolution_reason: str | None = None
+    data_hash:        str
+    proof_token_jti:  str
+    saga_id:          UUID
+
+    model_config = {"use_enum_values": True}
+
+
 class ContractLifecycle(BaseModel):
     """
     Aggregate view of a contract's full state history.

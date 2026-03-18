@@ -120,6 +120,28 @@ _SEED_RULES: list[dict[str, Any]] = [
         "description": "Cross-reference: flag if LOS interest rate deviates >2% from Pricing Engine calculation (informational)",
         "config": {"check": "pricing_engine_rate_deviation", "threshold_pct": 2.0, "severity": "warning"},
     },
+    # ── Customer update rules ─────────────────────────────────────────────────
+    {
+        "rule_id": "RULE-CUST-PMT-DATE",
+        "rule_type": "business",
+        "event_type": "integration.payment_update_requested",
+        "description": "Payment date must be between 1 and 28",
+        "config": {"field": "payment_info.payment_date", "min": 1, "max": 28},
+    },
+    {
+        "rule_id": "RULE-CUST-STATE-ELIGIBLE",
+        "rule_type": "cross_system",
+        "event_type": "integration.*",
+        "description": "Customer profile updates only allowed on active or delinquent contracts",
+        "config": {"check": "contract_state_update_eligible"},
+    },
+    {
+        "rule_id": "RULE-CUST-STALE-SYNC",
+        "rule_type": "cross_system",
+        "event_type": "integration.llas_sync_requested",
+        "description": "LOS sync data must not be older than last validated ledger record",
+        "config": {"check": "stale_los_sync"},
+    },
     # ── Payment rules ─────────────────────────────────────────────────────────
     {
         "rule_id": "RULE-PAY-AMT",
@@ -232,47 +254,71 @@ async def _quarantine_event(
         return
 
     primary_failure = failures[0] if failures else {"code": "UNKNOWN", "message": "Unknown failure"}
+    is_conflict = primary_failure.get("code") == "CONFLICT_PENDING"
+    conflict_pair_id = primary_failure.get("conflict_pair_id") if is_conflict else None
+    conflicting_event_id = primary_failure.get("conflicting_event_id") if is_conflict else None
+    status = "conflict" if is_conflict else "pending"
+
     context_data = {
         "failures": failures,
-        "context": context_snapshot or {},
+        "context": {k: v for k, v in (context_snapshot or {}).items() if not k.startswith("_")},
     }
 
     async with _pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO validation.quarantine (
-                event_id, contract_id, event_type, source_system,
-                rejection_code, rejection_detail,
-                context_snapshot, original_payload,
-                status, escalation_level, created_at, sla_deadline
-            ) VALUES (
-                $1::uuid, $2, $3, $4,
-                $5, $6,
-                $7::jsonb, $8::jsonb,
-                'pending', 0, NOW(), NOW() + INTERVAL '24 hours'
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO validation.quarantine (
+                    event_id, contract_id, event_type, source_system,
+                    rejection_code, rejection_detail,
+                    context_snapshot, original_payload,
+                    status, escalation_level, conflict_pair_id, created_at, sla_deadline
+                ) VALUES (
+                    $1::uuid, $2, $3, $4,
+                    $5, $6,
+                    $7::jsonb, $8::jsonb,
+                    $9, 0, $10, NOW(), NOW() + INTERVAL '24 hours'
+                )
+                ON CONFLICT (event_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        rejection_code = EXCLUDED.rejection_code,
+                        rejection_detail = EXCLUDED.rejection_detail,
+                        context_snapshot = EXCLUDED.context_snapshot,
+                        original_payload = EXCLUDED.original_payload,
+                        conflict_pair_id = EXCLUDED.conflict_pair_id
+                """,
+                event_envelope["event_id"],
+                event_envelope.get("contract_id", ""),
+                event_envelope.get("event_type", ""),
+                event_envelope.get("source_system", ""),
+                primary_failure["code"],
+                json.dumps(failures),
+                json.dumps(context_data),
+                json.dumps(event_envelope.get("payload", {})),
+                status,
+                conflict_pair_id,
             )
-            ON CONFLICT (event_id) DO UPDATE
-                SET status = 'pending',
-                    rejection_code = EXCLUDED.rejection_code,
-                    rejection_detail = EXCLUDED.rejection_detail,
-                    context_snapshot = EXCLUDED.context_snapshot,
-                    original_payload = EXCLUDED.original_payload
-            """,
-            event_envelope["event_id"],
-            event_envelope.get("contract_id", ""),
-            event_envelope.get("event_type", ""),
-            event_envelope.get("source_system", ""),
-            primary_failure["code"],
-            json.dumps(failures),
-            json.dumps(context_data),
-            json.dumps(event_envelope.get("payload", {})),
-        )
+
+            # If this is a conflict, also update the other quarantine entry
+            if is_conflict and conflicting_event_id and conflict_pair_id:
+                await conn.execute(
+                    """
+                    UPDATE validation.quarantine
+                    SET status = 'conflict', conflict_pair_id = $1
+                    WHERE event_id = $2::uuid
+                    """,
+                    conflict_pair_id,
+                    conflicting_event_id,
+                )
+
     logger.info(
         "event_quarantined",
         event_id=event_envelope["event_id"],
         contract_id=event_envelope.get("contract_id"),
         failure_count=len(failures),
         primary_code=primary_failure["code"],
+        status=status,
+        conflict_pair_id=conflict_pair_id,
     )
 
 
@@ -376,6 +422,143 @@ def _validate_payment(
         })
 
     return failures
+
+
+def _validate_customer_update(
+    payload: dict[str, Any],
+    context: dict[str, Any],
+    event_type: str,
+) -> list[dict[str, Any]]:
+    """
+    Validate a customer profile update (integration.* events).
+
+    Rules:
+      RULE-CUST-STATE-ELIGIBLE  — contract must be active or delinquent
+      RULE-CUST-PMT-DATE        — payment date must be 1-28 (payment updates only)
+      RULE-CUST-STALE-SYNC      — LOS sync data must not be stale
+    """
+    failures: list[dict[str, Any]] = []
+
+    # RULE-CUST-STATE-ELIGIBLE: contract must be active or delinquent
+    _UPDATE_ELIGIBLE_STATES = {"active", "delinquent", "originated"}
+    ledger_state = context.get("ledger_state", {})
+    current_state = ledger_state.get("current_state")
+    if current_state and current_state not in _UPDATE_ELIGIBLE_STATES:
+        failures.append({
+            "rule_id":   "RULE-CUST-STATE-ELIGIBLE",
+            "rule_type": "cross_system",
+            "code":      "CONTRACT_STATE_INELIGIBLE",
+            "message":   (
+                f"Customer profile updates are not allowed on contracts in state "
+                f"'{current_state}'. Contract must be active or delinquent."
+            ),
+            "field":    "contract_state",
+            "expected": str(_UPDATE_ELIGIBLE_STATES),
+            "actual":   current_state,
+        })
+        # Early return — no point checking other rules if state is ineligible
+        return failures
+
+    # RULE-CUST-PMT-DATE: payment date must be 1–28
+    if event_type == "integration.payment_update_requested":
+        payment_info = payload.get("changes", {}).get("payment_info", {})
+        payment_date = payment_info.get("payment_date")
+        if payment_date is not None:
+            try:
+                day = int(payment_date)
+                if not (1 <= day <= 28):
+                    raise ValueError
+            except (ValueError, TypeError):
+                failures.append({
+                    "rule_id":   "RULE-CUST-PMT-DATE",
+                    "rule_type": "business",
+                    "code":      "INVALID_PAYMENT_DATE",
+                    "message":   f"Payment date must be between 1 and 28 (got {payment_date})",
+                    "field":     "payment_info.payment_date",
+                    "expected":  "1-28",
+                    "actual":    payment_date,
+                })
+
+    # RULE-CUST-STALE-SYNC: LOS sync data must not be older than last ledger record
+    if event_type == "integration.llas_sync_requested":
+        los_updated_at = payload.get("changes", {}).get("los_updated_at")
+        last_ledger_update = context.get("last_customer_update_at")
+        if los_updated_at and last_ledger_update:
+            try:
+                from datetime import datetime, timezone
+                los_dt = datetime.fromisoformat(los_updated_at.replace("Z", "+00:00"))
+                ledger_dt = datetime.fromisoformat(last_ledger_update.replace("Z", "+00:00"))
+                if los_dt < ledger_dt:
+                    failures.append({
+                        "rule_id":   "RULE-CUST-STALE-SYNC",
+                        "rule_type": "cross_system",
+                        "code":      "STALE_LOS_SYNC",
+                        "message":   (
+                            f"LOS sync data (updated {los_updated_at}) is older than the last "
+                            f"validated customer update in the ledger ({last_ledger_update}). "
+                            "Applying this sync would overwrite more recent validated data."
+                        ),
+                        "field":    "los_updated_at",
+                        "expected": f">= {last_ledger_update}",
+                        "actual":   los_updated_at,
+                    })
+            except Exception:
+                pass  # If dates can't be compared, allow through
+
+    return failures
+
+
+async def _check_conflict(
+    contract_id: str,
+    source_system: str,
+    changes: dict,
+    event_id: str,
+) -> str | None:
+    """
+    Check if any pending quarantine entry conflicts with this update
+    (same contract, same field(s), different source system).
+
+    Returns conflict_pair_id if a conflict is found, None otherwise.
+    """
+    if not _pool:
+        return None
+
+    # Determine which top-level change keys are being modified
+    changed_keys = set(changes.keys())
+    if not changed_keys:
+        return None
+
+    async with _pool.acquire() as conn:
+        # Look for pending integration updates to same contract from different source
+        rows = await conn.fetch(
+            """
+            SELECT event_id::text, source_system, original_payload, context_snapshot
+            FROM validation.quarantine
+            WHERE contract_id = $1
+              AND status = 'pending'
+              AND source_system != $2
+              AND event_type LIKE 'integration.%'
+              AND event_id::text != $3
+            ORDER BY created_at DESC
+            LIMIT 10
+            """,
+            contract_id,
+            source_system,
+            event_id,
+        )
+
+    for row in rows:
+        try:
+            other_payload = json.loads(row["original_payload"] or "{}")
+            other_changes = other_payload.get("changes", {})
+            other_keys = set(other_changes.keys())
+            # Conflict = overlapping top-level change keys
+            if changed_keys & other_keys:
+                return str(row["event_id"])
+        except Exception:
+            continue
+
+    return None
 
 
 def _deep_merge(base: dict, overrides: dict) -> dict:
@@ -646,12 +829,47 @@ async def validate_event(request: dict) -> dict:
         EventType.IVR_PAYMENT_SUBMITTED,
     }
 
+    _INTEGRATION_EVENT_TYPES = {
+        EventType.INTEGRATION_CONTACT_UPDATE,
+        EventType.INTEGRATION_PAYMENT_UPDATE,
+        EventType.INTEGRATION_INSURANCE_UPDATE,
+        EventType.INTEGRATION_LLAS_SYNC,
+    }
+
     if event_type == EventType.CONTRACT_ORIGINATED:
         failures = _validate_origination(payload, context)
         # Cross-reference against upstream systems (warnings only, never blocks)
         warnings.extend(_cross_reference_origination(payload, context))
     elif event_type in _PAYMENT_EVENT_TYPES:
         failures = _validate_payment(payload, context)
+    elif event_type in _INTEGRATION_EVENT_TYPES:
+        failures = _validate_customer_update(payload, context, event_type)
+        # Conflict check: if no other failures, look for competing pending updates
+        if not failures:
+            source_system = event_envelope.get("source_system", "")
+            changes = payload.get("changes", {})
+            conflicting_event_id = await _check_conflict(contract_id, source_system, changes, event_id)
+            if conflicting_event_id:
+                # Quarantine this event AND update the other event to conflict status
+                conflict_pair_id = str(uuid.uuid4())
+                failures.append({
+                    "rule_id":   "RULE-CONFLICT-PENDING",
+                    "rule_type": "cross_system",
+                    "code":      "CONFLICT_PENDING",
+                    "message":   (
+                        f"Competing update to the same fields from a different source system "
+                        f"is already pending. Both updates are quarantined for LLAS Admin resolution."
+                    ),
+                    "field":            list(changes.keys()),
+                    "conflict_pair_id": conflict_pair_id,
+                    "conflicting_event_id": conflicting_event_id,
+                })
+                # Store conflict_pair_id in context for _quarantine_event to use
+                context["_conflict_pair_id"] = conflict_pair_id
+                context["_conflicting_event_id"] = conflicting_event_id
+    elif event_type == EventType.INTEGRATION_CONFLICT_RESOLVED:
+        # Conflict resolution events are pre-validated by resolve_conflict tool — pass through
+        pass
     else:
         # For event types not yet implemented, warn but don't block
         warnings.append({
@@ -861,6 +1079,204 @@ async def get_rule_history(rule_id: str) -> list[dict]:
                 pass
         result.append(r)
     return result
+
+
+@mcp.tool()
+async def get_conflicts(contract_id: str | None = None) -> list[dict]:
+    """
+    Return active conflict pairs (status='conflict') pending LLAS Admin resolution.
+    Optionally filter by contract_id.
+
+    Returns pairs of quarantine entries grouped by conflict_pair_id.
+    """
+    if not _pool:
+        return []
+
+    async with _pool.acquire() as conn:
+        if contract_id:
+            rows = await conn.fetch(
+                """
+                SELECT event_id::text, contract_id, event_type, source_system,
+                       rejection_code, rejection_detail, status, conflict_pair_id,
+                       context_snapshot::text, original_payload::text,
+                       created_at::text, sla_deadline::text
+                FROM validation.quarantine
+                WHERE status = 'conflict'
+                  AND conflict_pair_id IS NOT NULL
+                  AND contract_id = $1
+                ORDER BY created_at DESC
+                """,
+                contract_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT event_id::text, contract_id, event_type, source_system,
+                       rejection_code, rejection_detail, status, conflict_pair_id,
+                       context_snapshot::text, original_payload::text,
+                       created_at::text, sla_deadline::text
+                FROM validation.quarantine
+                WHERE status = 'conflict'
+                  AND conflict_pair_id IS NOT NULL
+                ORDER BY created_at DESC
+                """
+            )
+
+    result = []
+    for row in rows:
+        r = dict(row)
+        for key in ("context_snapshot", "original_payload"):
+            if r.get(key):
+                try:
+                    r[key] = json.loads(r[key])
+                except Exception:
+                    pass
+        result.append(r)
+    return result
+
+
+@mcp.tool()
+async def resolve_conflict(
+    conflict_pair_id: str,
+    winning_event_id: str,
+    admin_id: str,
+    reason: str,
+) -> dict:
+    """
+    Resolve a conflict between two competing customer profile updates.
+
+    Called by the Dashboard API when an LLAS Admin selects the authoritative value.
+    SmartLedger still validates the winning value before issuing a proof token.
+    Both entries are updated: winning=resolved, losing=rejected.
+    A conflict_resolved event is published to trigger the agent to write the ledger record.
+
+    Args:
+        conflict_pair_id: the UUID linking both quarantine entries
+        winning_event_id: the event_id of the update the admin has selected as authoritative
+        admin_id:         user ID of the LLAS Admin making the decision
+        reason:           reason for selecting the winning value (required)
+
+    Returns: {success, proof_token, winning_event_id, contract_id}
+    """
+    if not _pool:
+        raise RuntimeError("Database not available")
+    if not reason.strip():
+        return {"success": False, "reason": "reason is required for conflict resolution"}
+
+    # Fetch both entries in the conflict pair
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT event_id::text, contract_id, event_type, source_system,
+                   original_payload::text, context_snapshot::text
+            FROM validation.quarantine
+            WHERE conflict_pair_id = $1 AND status = 'conflict'
+            """,
+            conflict_pair_id,
+        )
+
+    if not rows:
+        return {
+            "success": False,
+            "reason": f"No active conflict found for conflict_pair_id '{conflict_pair_id}'",
+        }
+
+    winning_row = next((r for r in rows if str(r["event_id"]) == winning_event_id), None)
+    if not winning_row:
+        return {
+            "success": False,
+            "reason": f"winning_event_id '{winning_event_id}' not in conflict pair '{conflict_pair_id}'",
+        }
+
+    losing_row = next((r for r in rows if str(r["event_id"]) != winning_event_id), None)
+    contract_id = winning_row["contract_id"]
+
+    # Parse payload
+    try:
+        winning_payload = json.loads(winning_row["original_payload"] or "{}")
+        winning_context = json.loads(winning_row.get("context_snapshot") or "{}")
+    except Exception:
+        winning_payload = {}
+        winning_context = {}
+
+    # Validate the winning value (business rules must still pass)
+    win_event_type = winning_row["event_type"]
+    win_context = winning_context.get("context", {})
+    failures = _validate_customer_update(winning_payload, win_context, win_event_type)
+    if failures:
+        return {
+            "success": False,
+            "reason":  "Winning value failed validation — cannot resolve conflict",
+            "failures": failures,
+        }
+
+    # Issue proof token for the winning event
+    proof_token, jti = _issue_proof_token(contract_id, winning_event_id, f"conflict-resolution-{conflict_pair_id}")
+
+    # Update quarantine statuses
+    now = datetime.now(timezone.utc)
+    async with _pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                UPDATE validation.quarantine
+                SET status = 'resolved', reviewed_by = $1, reviewed_at = $2,
+                    override_reason = $3
+                WHERE event_id = $4::uuid
+                """,
+                admin_id, now, reason, winning_event_id,
+            )
+            if losing_row:
+                await conn.execute(
+                    """
+                    UPDATE validation.quarantine
+                    SET status = 'rejected', reviewed_by = $1, reviewed_at = $2,
+                        override_reason = $3
+                    WHERE event_id = $4::uuid
+                    """,
+                    admin_id, now,
+                    f"CONFLICT_RESOLVED_BY_ADMIN: {admin_id} selected competing update. Reason: {reason}",
+                    str(losing_row["event_id"]),
+                )
+
+    # Publish integration.conflict_resolved event to trigger agent
+    if _redis:
+        message: dict[str, str] = {
+            "event_id":       str(uuid.uuid4()),
+            "event_type":     "integration.conflict_resolved",
+            "source_system":  "validation_engine",
+            "contract_id":    contract_id,
+            "timestamp":      now.isoformat(),
+            "correlation_id": conflict_pair_id,
+            "schema_version": "1.0",
+            "payload":        json.dumps({
+                "contract_id":      contract_id,
+                "conflict_pair_id": conflict_pair_id,
+                "winning_event_id": winning_event_id,
+                "winning_payload":  winning_payload,
+                "admin_id":         admin_id,
+                "reason":           reason,
+                "proof_token":      proof_token,
+            }),
+        }
+        try:
+            await _redis.xadd("smartledger:events", message)
+            logger.info(
+                "conflict_resolved_event_published",
+                conflict_pair_id=conflict_pair_id,
+                winning_event_id=winning_event_id,
+                admin_id=admin_id,
+            )
+        except Exception as e:
+            logger.error("conflict_resolved_publish_failed", error=str(e))
+
+    return {
+        "success":          True,
+        "proof_token":      proof_token,
+        "winning_event_id": winning_event_id,
+        "contract_id":      contract_id,
+        "conflict_pair_id": conflict_pair_id,
+    }
 
 
 @mcp.tool()

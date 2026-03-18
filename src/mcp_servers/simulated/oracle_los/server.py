@@ -28,6 +28,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from shared.config import get_settings
 from shared.logging import configure_logging, get_logger
+from shared.mcp_caller import MCPCallError, call_mcp_tool
 from shared.models.common import EventType, SourceSystem
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
@@ -366,6 +367,61 @@ async def amend_contract(contract_id: str, changes: dict) -> dict:
     logger.info("contract_amended", contract_id=contract_id, changed_fields=list(changes.keys()))
 
     return {"success": True, "contract_id": contract_id, "contract": contract}
+
+
+@mcp.tool()
+async def sync_to_llas(contract_id: str) -> dict:
+    """
+    Sync current Oracle LOS contract data to LLAS via the Integration System.
+
+    Called when Oracle LOS has updated contract master data and needs to push
+    it to LLAS. SmartLedger validates for staleness — if this LOS data is older
+    than the last validated ledger record, it will be quarantined as STALE_LOS_SYNC.
+
+    Args:
+        contract_id: the contract to sync
+
+    Returns: {success, integration_ref, status}
+    """
+    contract = _contracts.get(contract_id)
+    if not contract:
+        return {"success": False, "reason": f"Contract '{contract_id}' not found in Oracle LOS"}
+
+    # Build the sync payload from current LOS contract data
+    sync_payload = {
+        "address":    contract.get("customer", {}).get("address"),
+        "contact": {
+            "first_name": contract.get("customer", {}).get("first_name"),
+            "last_name":  contract.get("customer", {}).get("last_name"),
+            "phone":      contract.get("customer", {}).get("phone"),
+            "email":      contract.get("customer", {}).get("email"),
+        },
+        "los_updated_at": contract.get("updated_at", contract.get("origination_date")),
+    }
+    # Remove None values
+    sync_payload = {k: v for k, v in sync_payload.items() if v is not None}
+
+    try:
+        result = await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_llas_sync",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.ORACLE_LOS,
+                "sync_payload":  sync_payload,
+            },
+        )
+    except MCPCallError as e:
+        logger.error("oracle_los_sync_failed", contract_id=contract_id, error=str(e))
+        return {"success": False, "reason": f"Integration System unavailable: {e}"}
+
+    integration_ref = result.get("integration_ref", "") if isinstance(result, dict) else ""
+    logger.info("oracle_los_sync_submitted", contract_id=contract_id, integration_ref=integration_ref)
+    return {
+        "success":         bool(integration_ref),
+        "integration_ref": integration_ref,
+        "status":          "pending_validation",
+    }
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

@@ -2,13 +2,17 @@
 LLAS (Loan/Lease Accounting System) Simulated MCP Server
 
 Simulates the accounting system that manages contract balances, payment history,
-and account status. The agent calls this during context gathering before validation.
+account status, and customer profile master data (Phase H).
 
 Tools:
-  - get_account(contract_id)                   → account details (None if new contract)
-  - get_payment_history(contract_id, limit=12)  → recent payment history
-  - get_balance(contract_id)                    → current balance and payment status
-  - create_account(contract_id, account_data)   → create account after successful origination
+  - get_account(contract_id)                                         → account details
+  - get_payment_history(contract_id, limit=12)                       → recent payment history
+  - get_balance(contract_id)                                         → current balance and payment status
+  - create_account(contract_id, account_data)                        → create account after origination
+  - post_payment(contract_id, payment_data)                          → apply a payment
+  - get_customer_profile(contract_id)                                → customer profile master data
+  - update_customer_profile(contract_id, changes, validated_by, source_system) → update profile (SmartLedger validated only)
+  - get_payment_info(contract_id)                                    → payment method details
 """
 
 from contextlib import asynccontextmanager
@@ -31,8 +35,9 @@ logger = get_logger(__name__)
 
 _accounts: dict[str, dict[str, Any]] = {}
 _payment_history: dict[str, list[dict[str, Any]]] = {}
+_customer_profiles: dict[str, dict[str, Any]] = {}
 
-# ─── Seed data (mirrors Oracle LOS seed contracts) ────────────────────────────
+# ─── Seed data ────────────────────────────────────────────────────────────────
 
 _SEED_ACCOUNTS: list[dict[str, Any]] = [
     {
@@ -94,6 +99,70 @@ _SEED_PAYMENT_HISTORY: dict[str, list[dict[str, Any]]] = {
 }
 
 
+# ─── Seed customer profiles (PII — off-chain, in-memory only) ─────────────────
+
+_SEED_CUSTOMER_PROFILES: list[dict[str, Any]] = [
+    {
+        "contract_id": "ORC-2024-001",
+        "address": {
+            "street1": "123 Main St",
+            "city": "Dallas",
+            "state": "TX",
+            "zip": "75201",
+            "country": "US",
+        },
+        "contact": {
+            "first_name": "James",
+            "last_name": "Carter",
+            "phone": "214-555-0101",
+            "email": "james.carter@example.com",
+        },
+        "payment_info": {
+            "method": "ach",
+            "bank_account_last4": "4567",
+            "routing_last4": "2345",
+            "payment_date": 1,
+        },
+        "insurance": {
+            "carrier": "StateFarm",
+            "policy_number": "SF-12345",
+            "expiry": "2027-03-01",
+        },
+        "last_updated_by": "origination",
+        "last_updated_at": "2025-09-01T00:00:00+00:00",
+    },
+    {
+        "contract_id": "ORC-2024-002",
+        "address": {
+            "street1": "456 Oak Ave",
+            "city": "Austin",
+            "state": "TX",
+            "zip": "78701",
+            "country": "US",
+        },
+        "contact": {
+            "first_name": "Maria",
+            "last_name": "Gonzalez",
+            "phone": "512-555-0202",
+            "email": "maria.gonzalez@example.com",
+        },
+        "payment_info": {
+            "method": "ach",
+            "bank_account_last4": "8901",
+            "routing_last4": "6789",
+            "payment_date": 15,
+        },
+        "insurance": {
+            "carrier": "AllState",
+            "policy_number": "AS-67890",
+            "expiry": "2027-06-15",
+        },
+        "last_updated_by": "origination",
+        "last_updated_at": "2025-07-15T00:00:00+00:00",
+    },
+]
+
+
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -102,7 +171,13 @@ async def lifespan(server: FastMCP):
         _accounts[acct["contract_id"]] = acct
     for cid, history in _SEED_PAYMENT_HISTORY.items():
         _payment_history[cid] = list(history)
-    logger.info("llas_seeded", account_count=len(_SEED_ACCOUNTS))
+    for profile in _SEED_CUSTOMER_PROFILES:
+        _customer_profiles[profile["contract_id"]] = dict(profile)
+    logger.info(
+        "llas_seeded",
+        account_count=len(_SEED_ACCOUNTS),
+        profile_count=len(_SEED_CUSTOMER_PROFILES),
+    )
     yield
     logger.info("llas_shutdown")
 
@@ -299,6 +374,100 @@ async def create_account(contract_id: str, account_data: dict) -> dict:
 
     logger.info("llas_account_created", contract_id=contract_id)
     return {"success": True, "contract_id": contract_id, "account": account}
+
+
+@mcp.tool()
+async def get_customer_profile(contract_id: str) -> dict:
+    """
+    Return the customer profile master data for a contract.
+
+    The customer profile is the system-of-record for address, contact info,
+    payment method, and insurance details. Updated only after SmartLedger validation.
+
+    Returns {found: False} if no profile exists for the contract.
+    """
+    profile = _customer_profiles.get(contract_id)
+    if profile is None:
+        return {"found": False, "contract_id": contract_id}
+    return {"found": True, **profile}
+
+
+@mcp.tool()
+async def update_customer_profile(
+    contract_id: str,
+    changes: dict,
+    validated_by: str,
+    source_system: str,
+) -> dict:
+    """
+    Update the customer profile for a contract.
+
+    IMPORTANT: This tool must only be called by the SmartLedger agent AFTER
+    a customer_update record has been successfully written to the ledger.
+    The 'validated_by' field must be 'smartledger'.
+
+    Args:
+        contract_id:   the contract whose profile is being updated
+        changes:       dict of top-level keys (address, contact, payment_info, insurance)
+                       with their new values (partial updates — only provided keys updated)
+        validated_by:  must be 'smartledger' for this call to proceed
+        source_system: source system that originated the change (for audit)
+
+    Returns: {success, contract_id, profile}
+    """
+    if validated_by != "smartledger":
+        return {
+            "success": False,
+            "reason": "Profile updates must be validated by SmartLedger before applying to LLAS",
+        }
+
+    profile = _customer_profiles.get(contract_id)
+    if profile is None:
+        # Create a new profile (e.g. for newly originated contracts)
+        profile = {"contract_id": contract_id}
+        _customer_profiles[contract_id] = profile
+
+    # Apply partial updates — only top-level keys present in changes
+    for key, value in changes.items():
+        if isinstance(value, dict) and isinstance(profile.get(key), dict):
+            # Deep merge for nested dicts (e.g. address, contact)
+            profile[key] = {**profile.get(key, {}), **value}
+        else:
+            profile[key] = value
+
+    profile["last_updated_by"] = source_system
+    profile["last_updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    logger.info(
+        "llas_customer_profile_updated",
+        contract_id=contract_id,
+        source_system=source_system,
+        changed_keys=list(changes.keys()),
+    )
+    return {"success": True, "contract_id": contract_id, "profile": profile}
+
+
+@mcp.tool()
+async def get_payment_info(contract_id: str) -> dict:
+    """
+    Return payment method details for a contract (last4 only — no full account numbers).
+
+    Returns {found: False} if no profile or payment info exists.
+    """
+    profile = _customer_profiles.get(contract_id)
+    if not profile:
+        return {"found": False, "contract_id": contract_id}
+    payment_info = profile.get("payment_info")
+    if not payment_info:
+        return {"found": False, "contract_id": contract_id, "reason": "No payment info on file"}
+    return {
+        "found": True,
+        "contract_id": contract_id,
+        "method": payment_info.get("method"),
+        "bank_account_last4": payment_info.get("bank_account_last4"),
+        "routing_last4": payment_info.get("routing_last4"),
+        "payment_date": payment_info.get("payment_date"),
+    }
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

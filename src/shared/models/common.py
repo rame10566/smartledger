@@ -22,10 +22,11 @@ class SourceSystem(StrEnum):
     CUSTOMER_PORTAL  = "customer_portal"
     MOBILE_APP       = "mobile_app"
     IVR              = "ivr"
-    RULES_ENGINE     = "rules_engine"
-    PRICING_ENGINE   = "pricing_engine"
-    AGENT            = "agent"
-    DASHBOARD        = "dashboard"
+    RULES_ENGINE        = "rules_engine"
+    PRICING_ENGINE      = "pricing_engine"
+    INTEGRATION_SYSTEM  = "integration_system"
+    AGENT               = "agent"
+    DASHBOARD           = "dashboard"
 
 
 class EventType(StrEnum):
@@ -41,9 +42,14 @@ class EventType(StrEnum):
     IVR_PAYMENT_SUBMITTED     = "ivr.payment_submitted"
     IVR_CALLBACK_REQUESTED    = "ivr.callback_requested"
     REPORT_REQUESTED          = "report.requested"
-    QUARANTINE_PENDING        = "quarantine.pending"
-    QUARANTINE_APPROVED       = "quarantine.approved"
-    QUARANTINE_REJECTED       = "quarantine.rejected"
+    QUARANTINE_PENDING                  = "quarantine.pending"
+    QUARANTINE_APPROVED                 = "quarantine.approved"
+    QUARANTINE_REJECTED                 = "quarantine.rejected"
+    INTEGRATION_CONTACT_UPDATE          = "integration.contact_update_requested"
+    INTEGRATION_PAYMENT_UPDATE          = "integration.payment_update_requested"
+    INTEGRATION_INSURANCE_UPDATE        = "integration.insurance_update_requested"
+    INTEGRATION_LLAS_SYNC               = "integration.llas_sync_requested"
+    INTEGRATION_CONFLICT_RESOLVED       = "integration.conflict_resolved"
 
 
 class ContractState(StrEnum):

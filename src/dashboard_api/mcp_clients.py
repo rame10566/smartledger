@@ -5,10 +5,11 @@ Thin wrappers around the shared MCP call_tool utility.
 Kept here (rather than imported from agent.core.mcp_client) so the
 dashboard-api Docker image does not need the full agent package.
 
-Only the three clients the dashboard uses are defined here:
+Clients defined here:
   ledger     → Ledger MCP (port 8002)
   validation → Validation Engine (port 8001)
   reporting  → Reporting MCP (port 8004)
+  llas       → LLAS simulator (port 8012)
 """
 
 import json
@@ -115,6 +116,24 @@ class _ValidationClient:
         return _as_list(await _call_tool(self._url(), "get_quarantined",
                                           {"contract_id": contract_id}))
 
+    async def get_conflicts(self, contract_id: str | None = None) -> list:
+        return _as_list(await _call_tool(self._url(), "get_conflicts",
+                                          {"contract_id": contract_id}))
+
+    async def resolve_conflict(
+        self,
+        conflict_pair_id: str,
+        winning_event_id: str,
+        admin_id: str,
+        reason: str,
+    ) -> dict:
+        return await _call_tool(self._url(), "resolve_conflict", {
+            "conflict_pair_id": conflict_pair_id,
+            "winning_event_id": winning_event_id,
+            "admin_id":         admin_id,
+            "reason":           reason,
+        })
+
 
 # ── Reporting client ──────────────────────────────────────────────────────────
 
@@ -144,8 +163,19 @@ class _ReportingClient:
                                 {"report_id": report_id, "format": format})
 
 
+# ── LLAS client ───────────────────────────────────────────────────────────────
+
+class _LLASClient:
+    def _url(self): return settings.mcp_llas_url
+
+    async def get_customer_profile(self, contract_id: str) -> dict:
+        return await _call_tool(self._url(), "get_customer_profile",
+                                {"contract_id": contract_id})
+
+
 # ── Module-level singletons ───────────────────────────────────────────────────
 
 ledger     = _LedgerClient()
 validation = _ValidationClient()
 reporting  = _ReportingClient()
+llas       = _LLASClient()

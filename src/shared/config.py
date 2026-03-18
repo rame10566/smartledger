@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     mcp_ivr_url: str = "http://localhost:8019/mcp"
     mcp_rules_engine_url: str = "http://localhost:8020/mcp"
     mcp_pricing_engine_url: str = "http://localhost:8021/mcp"
+    mcp_integration_url: str = "http://localhost:8022/mcp"
 
     # ─── JWT (agent session tokens) ───────────────────────────────────────────
     jwt_secret: str = "change-me-in-production"
