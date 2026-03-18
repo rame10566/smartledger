@@ -324,6 +324,71 @@ SmartLedger/SDG is a **validation gateway + immutable ledger**. It does NOT own 
    → Dashboard shows aging metrics for all quarantined events
 ```
 
+### 3.6 Customer Profile Update Flow (Integration Layer)
+
+SmartLedger intercepts at the integration boundary — the moment a source system (CRM, Portal, Mobile, LOS) calls the Integration System to push customer profile changes into LLAS. This makes SmartLedger a sanity check and auditor of every critical customer data change.
+
+```
+1.  Source system completes a customer-initiated change:
+    - CRM: Service Request (SR) worked and completed by agent
+    - Portal / Mobile App: Customer self-service save
+    - LOS: Batch or realtime sync to LLAS
+2.  Source system calls Integration System MCP → submit_*_update(contract_id, source_system, changes, source_ref)
+3.  Integration System does basic format/syntax validation (field types, required fields only)
+4.  Integration System publishes event to Redis Streams:
+    - integration.contact_update_requested  (address, phone, email)
+    - integration.payment_update_requested  (bank account, payment date, method)
+    - integration.insurance_update_requested (carrier, policy, lienholder)
+    - integration.llas_sync_requested        (LOS pushing full contract data to LLAS)
+5.  Agent picks event from bus
+6.  Agent acquires lock: LOCK("contract:{contract_id}")
+7.  Agent calls LLAS MCP → get_customer_profile(contract_id) → current LLAS profile state
+8.  Agent calls Validation Engine → validate_event(integration event + llas profile context)
+    - Conflict check: is there a pending unresolved update to the same field from a DIFFERENT source?
+    - Business rule check: is the contract in an eligible state for this change?
+    - Field validation: format, range, completeness per change type
+    - Cross-system parity: is LOS sync proposing a value that conflicts with a validated ledger record?
+9.  Checkpoint: CONTEXT_GATHERED
+10. IF VALID (no conflict, rules pass):
+    → Agent calls Ledger MCP → write_record(customer_update_record, proof_token)
+    → Agent calls LLAS MCP → update_customer_profile(contract_id, changes, validated_by='smartledger', source_system)
+    → Checkpoint: COMPLETED
+11. IF CONFLICT detected (same field, different value, different source system, both pending):
+    → Quarantine BOTH events with status='conflict', linked via conflict_pair_id
+    → Neither update proceeds to LLAS — both blocked pending admin resolution
+    → Dashboard notifies LLAS Admin (polling)
+    → Checkpoint: QUARANTINED_CONFLICT
+12. IF INVALID (other rules):
+    → Quarantine with standard reasons (read-only audit trail)
+    → Source system must correct and resubmit via Integration System
+13. Agent releases lock, ACKs event
+```
+
+### 3.7 Conflict Resolution Flow (LLAS Admin)
+
+When two source systems submit conflicting updates to the same field on the same contract, neither proceeds to LLAS. The LLAS Admin — as the system-of-record owner — has authority to adjudicate which value is authoritative. SmartLedger still validates the selected value before writing.
+
+```
+1.  Two integration events arrive for the same contract + same field with different values
+    → Both quarantined with status='conflict', linked via conflict_pair_id
+2.  Dashboard → Conflicts view (LLAS Admin role required)
+    → Shows: source A proposed value, source B proposed value, current LLAS profile value
+    → Shows: source references (SR number, session ID), timestamps
+3.  LLAS Admin selects authoritative value (or rejects both) + enters resolution reason
+4.  Dashboard API → Validation Engine: resolve_conflict(conflict_pair_id, winning_event_id, admin_id, reason)
+5.  Validation Engine:
+    → Validates the selected value (business rules must still pass)
+    → Issues proof token for the winning event
+    → Marks winning event: status='resolved', resolved_by=admin_id, resolved_at=timestamp
+    → Marks losing event: status='rejected', rejection_code='CONFLICT_RESOLVED_BY_ADMIN'
+    → Publishes: integration.conflict_resolved to Redis Streams
+6.  Agent picks up integration.conflict_resolved
+    → Writes customer_update record to ledger with proof token + full resolution audit trail
+       (who resolved, which source won, which was rejected, reason)
+    → Calls LLAS MCP → update_customer_profile(contract_id, winning_changes)
+    → Checkpoint: COMPLETED
+```
+
 ---
 
 ## 4. Infrastructure Layer
@@ -359,6 +424,11 @@ SmartLedger/SDG is a **validation gateway + immutable ledger**. It does NOT own 
 | `report.requested`        | Dashboard / Scheduler  | Agent      | Report generation request            |
 | `quarantine.pending`      | Agent                  | Dashboard  | New quarantined event (read-only notification) |
 | `dlq`                     | Agent                  | Operations | Events that failed after max retries |
+| `integration.contact_update_requested`   | Integration System     | Agent      | Contact info update (address/phone/email) routed through integration layer |
+| `integration.payment_update_requested`   | Integration System     | Agent      | Payment info update (bank account/method/date) routed through integration layer |
+| `integration.insurance_update_requested` | Integration System     | Agent      | Insurance/lienholder update routed through integration layer |
+| `integration.llas_sync_requested`        | Integration System     | Agent      | LOS → LLAS full or partial sync request                      |
+| `integration.conflict_resolved`          | Validation Engine      | Agent      | LLAS Admin resolved a conflict — winning value ready to write |
 
 ### 4.2 Off-Chain Data Store (PostgreSQL)
 
@@ -741,6 +811,34 @@ src/shared/schemas/
     └── quarantine_record.json   ✅ Quarantined event awaiting review
 ```
 
+### 7.4 Customer Update Record Schema (Key Fields)
+
+| Field                | Type    | Description                                              |
+|----------------------|---------|----------------------------------------------------------|
+| `record_id`          | uuid    | Unique record ID                                         |
+| `contract_id`        | string  | Associated contract                                      |
+| `source_system`      | enum    | `crm`, `portal`, `mobile`, `oracle_los`, `salesforce_los` |
+| `source_reference`   | string  | SR number, session ID, batch job ID                      |
+| `integration_ref`    | uuid    | Integration System reference ID                          |
+| `change_type`        | enum    | `contact_update`, `payment_update`, `insurance_update`, `llas_sync` |
+| `field_changes`      | array   | `[{field, old_value, new_value}]` — each field changed   |
+| `conflict_pair_id`   | uuid    | Set when this record was part of a conflict (null otherwise) |
+| `resolved_by`        | string  | Admin ID if conflict resolution; null for clean updates  |
+| `data_hash`          | string  | SHA-256 hash of full off-chain record                    |
+
+### 7.5 LLAS Customer Profile Schema (Key Fields)
+
+| Field                | Type    | Description                                              |
+|----------------------|---------|----------------------------------------------------------|
+| `contract_id`        | string  | Associated contract                                      |
+| `address`            | object  | `{street, city, state, zip}` — mailing address (PII)    |
+| `contact`            | object  | `{phone, email}` (PII)                                   |
+| `payment_info`       | object  | `{method, bank_account_last4, routing_last4, payment_date}` |
+| `insurance`          | object  | `{carrier, policy_number, expiry_date, lienholder}`      |
+| `last_updated_by`    | string  | Source system of last validated update                   |
+| `last_updated_at`    | datetime| Timestamp of last validated update                       |
+| `last_validated_ref` | string  | Proof token JTI of last validation                       |
+
 **Pydantic Models** (located at `src/shared/models/`): Typed Python models mirroring all schemas above. Import via `from shared.models import EventEnvelope, ValidationResult, ...`
 
 ### 7.2 Origination Record Schema (Key Fields)
@@ -908,16 +1006,17 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 
 | MCP Server             | Tools Exposed to Agent                                                     |
 |------------------------|----------------------------------------------------------------------------|
-| **Oracle LOS**         | `get_contract(id)`, `get_pricing_output(id)`, `get_blaze_decision(id)`, `list_events(filters)` |
-| **Salesforce LOS**     | `get_contract(id)`, `get_logic_output(id)`, `list_events(filters)`         |
-| **LLAS (Accounting)**  | `get_account(id)`, `get_balance(id)`, `get_payment_history(id)`, `get_fees(id)`, `get_delinquency_status(id)` |
-| **CRM**                | `get_customer(id)`, `get_risk_indicators(id)`                              |
+| **Oracle LOS**         | `get_contract(id)`, `get_pricing_output(id)`, `get_blaze_decision(id)`, `list_events(filters)`, `sync_to_llas(contract_id)` |
+| **Salesforce LOS**     | `get_contract(id)`, `get_logic_output(id)`, `list_events(filters)`, `sync_to_llas(contract_id)` |
+| **LLAS (Accounting)**  | `get_account(id)`, `get_balance(id)`, `get_payment_history(id)`, `get_fees(id)`, `get_delinquency_status(id)`, `get_customer_profile(id)`, `update_customer_profile(id, changes, validated_by, source_system)`, `get_payment_info(id)` |
+| **CRM**                | `get_customer(id)`, `get_risk_indicators(id)`, `create_service_request(contract_id, sr_type, changes, customer_id)`, `get_service_request(sr_id)`, `complete_service_request(sr_id)`, `list_service_requests(contract_id?, status?)` |
 | **Payment System**     | `get_payment(id)`, `list_payments(contract_id)`, `get_settlement(id)`      |
 | **Insurance System**   | `get_policy_status(id)`, `verify_insurance(contract_id)`, `list_events(filters)` |
 | **Dealer System**      | `get_submission(id)`, `list_submissions(filters)`                          |
-| **Customer Portal (Web)** | `get_account_summary(id)`, `get_payment_schedule(id)`, `get_payment_history(id)`, `submit_payment(payment)`, `get_payoff_quote(id)`, `get_documents(id)` |
-| **Mobile App**         | `get_account_summary(id)`, `submit_payment(payment)`, `get_notifications(customer_id)` |
+| **Customer Portal (Web)** | `get_account_summary(id)`, `get_payment_schedule(id)`, `get_payment_history(id)`, `submit_payment(payment)`, `get_payoff_quote(id)`, `get_documents(id)`, `update_contact_info(contract_id, changes)`, `update_payment_method(contract_id, changes)` |
+| **Mobile App**         | `get_account_summary(id)`, `submit_payment(payment)`, `get_notifications(customer_id)`, `update_contact_info(contract_id, changes)`, `update_payment_method(contract_id, changes)` |
 | **IVR System**         | `get_account_status(id)`, `get_balance_due(id)`, `submit_phone_payment(payment)`, `request_callback(customer_id)`, `get_payoff_amount(id)` |
+| **Integration System** | `submit_contact_update(contract_id, source_system, changes, source_ref)`, `submit_payment_update(contract_id, source_system, changes, source_ref)`, `submit_insurance_update(contract_id, source_system, changes, source_ref)`, `submit_llas_sync(contract_id, source_system, sync_payload)`, `get_integration_status(integration_ref)` |
 
 ### 9.3 Simulated Validation Scenarios
 
@@ -933,6 +1032,12 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | SVAL-08 | Early termination / payoff             | Agent validates, updates lifecycle state                 |
 | SVAL-09 | Event with missing required fields     | Agent rejects at schema level before validation          |
 | SVAL-10 | Valid event with cross-reference warning | Agent validates successfully, attaches informational warnings from Rules/Pricing engines |
+| SVAL-11 | Clean CRM contact update (address change via SR) | Agent validates, writes customer_update record to ledger, updates LLAS profile |
+| SVAL-12 | Portal payment method update (self-service) | Agent validates bank account format + contract state, writes to ledger, updates LLAS |
+| SVAL-13 | CRM and Portal concurrent address conflict | Agent detects same field from different sources, quarantines both with status=conflict |
+| SVAL-14 | LOS sync with stale data (conflicts with validated ledger record) | Agent detects STALE_LOS_SYNC, quarantines — LOS must sync from ledger |
+| SVAL-15 | Payment method update on charged-off contract | Agent validates contract state ineligible, quarantines with CONTRACT_STATE_INELIGIBLE |
+| SVAL-16 | LLAS Admin resolves address conflict | Admin selects winning value → SmartLedger validates → writes to ledger with resolution audit trail |
 
 ---
 
@@ -970,7 +1075,7 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | **Unit tests**     | Each MCP server's internal logic (validation rules, schema parsing) | Jest / Pytest |
 | **Contract tests** | Verify MCP tool request/response schemas match between producer and consumer | Pact or custom schema validation |
 | **Integration tests** | Agent + one MCP server at a time (mock the rest)     | Test harness with mock MCP servers |
-| **E2E tests**      | Full flow: event → agent → all MCP servers → ledger → report. The SVAL scenarios (SVAL-01 through SVAL-10) are the E2E test suite. | Docker Compose with all 13 services |
+| **E2E tests**      | Full flow: event → agent → all MCP servers → ledger → report. The SVAL scenarios (SVAL-01 through SVAL-16) are the E2E test suite. | Docker Compose with all 13 services |
 | **Chaos tests**    | Randomly kill MCP servers mid-flow, verify saga recovery | Phase 2              |
 | **Performance tests** | Load testing against throughput targets               | Phase 2              |
 
@@ -1162,3 +1267,10 @@ The Dashboard API is a **REST/GraphQL service** — NOT an MCP server. The front
 | Contract Party        | An entity with a legitimate interest in a contract's data (borrower, lender, dealer, servicer, insurer). Recorded in `contracts.parties`. |
 | Field-Level Filtering | The Gateway strips fields from responses based on the caller's party role or operational role per the visibility matrix in Section 6.5.3. |
 | Access Tier           | Classification of how a caller accesses data: party access (relationship to contract), operational role (admin/auditor/etc.), or system access (MCP service). |
+| Integration System    | The data mover middleware (MuleSoft/Boomi/custom) that moves data from CRM, Portal, LOS to LLAS. Has only syntactic validation — no cross-system or business rule awareness. SmartLedger intercepts at this boundary. |
+| Service Request (SR)  | A CRM work item created when a customer calls in to request a change (address update, payment method change, etc.). Worked by a CRM agent, then pushed to LLAS via the Integration System. |
+| Customer Profile      | The customer master record in LLAS: address, contact info, payment method, insurance. The authoritative source for customer data. |
+| Conflict Detection    | SmartLedger validation that identifies when two source systems have submitted competing updates to the same field on the same contract. Both are quarantined pending LLAS Admin resolution. |
+| LLAS Admin            | Operational role with authority to resolve conflicts between competing customer data updates. Selects the authoritative value; SmartLedger records the resolution with full audit trail. |
+| conflict_pair_id      | UUID linking two quarantine entries that represent conflicting updates to the same field. Used to display both sides of a conflict in the dashboard and to record the resolution. |
+| Integration Layer     | The boundary between source systems (CRM, Portal, LOS) and LLAS. SmartLedger validates and audits all changes at this boundary before they reach LLAS. |

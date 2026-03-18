@@ -17,6 +17,9 @@ graph TB
         CP[Customer Portal<br/>:8017]
         MA[Mobile App<br/>:8018]
         IV[IVR System<br/>:8019]
+        RU[Rules Engine<br/>:8020]
+        PR[Pricing Engine<br/>:8021]
+        IS[Integration System<br/>:8022]
     end
 
     subgraph BUS["Event Bus"]
@@ -154,50 +157,136 @@ sequenceDiagram
 
 ---
 
-## 4. Contract Origination — Unhappy Path (Quarantine + Override)
+## 4. Contract Origination — Unhappy Path (Quarantine + Read-Only Audit Trail)
+
+> **SDG Validate-Only Boundary:** SmartLedger does NOT own the data and does NOT approve, override, or correct it. The originating system (Oracle LOS / Salesforce LOS) must fix the data and resend. The quarantine is a **read-only audit trail** — not an approval queue.
 
 ```mermaid
 sequenceDiagram
+    participant OL as Oracle LOS (sim)
+    participant Bus as Redis Streams
     participant Agent as AI Agent
     participant VAL as Validation Engine
-    participant Bus as Redis Streams
     participant PG as PostgreSQL
     participant DA as Dashboard API
-    participant HU as Human Reviewer
     participant UI as Dashboard UI
 
+    OL->>Bus: publish contract.originated (bad data)
+    Bus->>Agent: deliver event
+
+    Note over Agent: Acquire per-contract lock
+    Agent->>OL: get_contract(id)
+    OL-->>Agent: Oracle contract data
+    Agent->>LLAS: get_account(id)
+    LLAS-->>Agent: LLAS account data
+
     Agent->>VAL: validate_event(event + context)
-    VAL->>VAL: ❌ VIN_MISMATCH detected
-    VAL->>PG: INSERT validation.quarantine
+    VAL->>VAL: ❌ INVALID_INTEREST_RATE detected
+    VAL->>PG: INSERT validation.quarantine (status=pending)
     VAL-->>Agent: ValidationResult(valid=false, failures=[...])
 
     Note over Agent: Checkpoint: QUARANTINED
-    Agent->>Bus: publish quarantine.pending
+    Note over Agent: Release lock + ACK event
+    Note over Agent: ❌ Nothing written to ledger
 
-    Note over HU,UI: Human Review (Dashboard)
-    UI->>DA: GET /api/quarantine (polling)
-    DA->>PG: SELECT validation.quarantine WHERE status='pending'
-    DA-->>UI: quarantine list with context + rejection reasons
-    UI-->>HU: Shows: event data, cross-system diff, rejection reason
+    Note over UI: Dashboard (read-only audit trail)
+    UI->>DA: GET /api/quarantine (polling every 10s)
+    DA->>PG: SELECT validation.quarantine
+    DA-->>UI: quarantine list with failures + context snapshot
+    UI-->>Reviewer: Shows: rejection reasons, field diffs (informational only)
 
-    alt Human APPROVES override
-        HU->>UI: click Approve + enter reason
-        UI->>DA: POST /api/quarantine/{id}/approve
-        DA->>VAL: approve_override(event_id, reason, reviewer)
-        VAL->>PG: UPDATE quarantine SET status='approved'
-        VAL->>Bus: publish quarantine.approved
+    Note over OL: Originating system corrects and resubmits
+    OL->>Bus: publish contract.originated (corrected data)
+    Bus->>Agent: deliver corrected event (new event_id)
+    Note over Agent: Full validation flow runs again from scratch
+    Note over Agent: If valid → written to ledger
+```
 
-        Bus->>Agent: deliver quarantine.approved
-        Note over Agent: Resume saga from QUARANTINED checkpoint
-        Agent->>VAL: validate_event(..., override=true)
-        VAL-->>Agent: ValidationResult(valid=true, proof_token=JWT, override_flag=true)
-        Agent->>LED: write_record(record, proof_token) + override audit trail
-    else Human REJECTS
-        HU->>UI: click Reject + enter reason
-        UI->>DA: POST /api/quarantine/{id}/reject
-        DA->>PG: UPDATE quarantine SET status='rejected'
-        Note over Agent: Event permanently discarded
+## 4b. Customer Profile Update Flow (Integration Layer)
+
+> Source systems (CRM, Portal, Mobile, LOS) call the Integration System when pushing customer data changes to LLAS. SmartLedger intercepts at this boundary to validate and audit every critical change.
+
+```mermaid
+sequenceDiagram
+    participant SRC as Source System<br/>(CRM / Portal / Mobile / LOS)
+    participant INT as Integration System<br/>MCP :8022
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant LLAS as LLAS Sim
+    participant VAL as Validation Engine
+    participant LED as Ledger MCP
+
+    SRC->>INT: submit_contact_update / submit_payment_update<br/>(contract_id, source_system, changes, source_ref)
+    INT->>INT: Basic format + syntax check only
+    INT->>Bus: publish integration.contact_update_requested<br/>{contract_id, source_system, changes, integration_ref}
+
+    Bus->>Agent: deliver event
+    Note over Agent: Acquire per-contract lock
+
+    Agent->>LLAS: get_customer_profile(contract_id)
+    LLAS-->>Agent: current profile {address, contact, payment_info, insurance}
+
+    Agent->>VAL: validate_event(integration event + llas profile)
+    VAL->>VAL: Conflict check — pending update to same field from different source?
+    VAL->>VAL: Contract state eligibility check
+    VAL->>VAL: Business rule + field format checks
+    VAL->>VAL: Cross-system parity check (LOS sync vs ledger)
+
+    alt No conflict — valid update
+        VAL-->>Agent: ValidationResult(valid=true, proof_token=JWT)
+        Agent->>LED: write_record(customer_update_record, proof_token)
+        LED-->>Agent: RecordWritten
+        Agent->>LLAS: update_customer_profile(contract_id, changes, validated_by='smartledger')
+        Note over Agent: Checkpoint: COMPLETED
+    else Conflict detected — same field, different source
+        VAL->>VAL: Quarantine BOTH events (status=conflict, conflict_pair_id=uuid)
+        VAL-->>Agent: ValidationResult(valid=false, code=CONFLICT_PENDING)
+        Note over Agent: Checkpoint: QUARANTINED_CONFLICT
+        Note over Agent: ❌ Neither update proceeds to LLAS
+    else Invalid — other rule failure
+        VAL-->>Agent: ValidationResult(valid=false, failures=[...])
+        Note over Agent: Checkpoint: QUARANTINED
+        Note over Agent: ❌ Update blocked — source must fix and resubmit
     end
+
+    Note over Agent: Release lock + ACK event
+```
+
+---
+
+## 4c. Conflict Resolution Flow (LLAS Admin)
+
+> When two source systems submit competing updates to the same field, both are blocked. The LLAS Admin — as the system-of-record owner — adjudicates which value is authoritative. SmartLedger still validates the selected value before writing.
+
+```mermaid
+sequenceDiagram
+    participant UI as Dashboard UI
+    participant DA as Dashboard API
+    participant VAL as Validation Engine
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant LED as Ledger MCP
+    participant LLAS as LLAS Sim
+
+    Note over UI: LLAS Admin sees Conflicts view
+    UI->>DA: GET /api/conflicts (LLAS Admin role required)
+    DA-->>UI: conflict list — source A value vs source B value<br/>+ current LLAS profile value
+
+    Note over UI: Admin selects authoritative value + enters reason
+    UI->>DA: POST /api/conflicts/{conflict_pair_id}/resolve<br/>{winning_event_id, admin_id, reason}
+    DA->>VAL: resolve_conflict(conflict_pair_id, winning_event_id, admin_id, reason)
+
+    VAL->>VAL: Validate winning value (business rules must still pass)
+    VAL->>VAL: Issue proof token for winning event
+    VAL->>VAL: Mark winning: status=resolved
+    VAL->>VAL: Mark losing: status=rejected, reason=CONFLICT_RESOLVED_BY_ADMIN
+    VAL->>Bus: publish integration.conflict_resolved
+
+    Bus->>Agent: deliver integration.conflict_resolved
+    Agent->>LED: write_record(customer_update_record + resolution audit trail, proof_token)
+    LED-->>Agent: RecordWritten
+    Agent->>LLAS: update_customer_profile(contract_id, winning_changes)
+    Note over Agent: Checkpoint: COMPLETED
 ```
 
 ---
@@ -382,6 +471,9 @@ erDiagram
 | Customer Portal (sim) | 8017 | MCP (streamable-http) |
 | Mobile App (sim) | 8018 | MCP (streamable-http) |
 | IVR (sim) | 8019 | MCP (streamable-http) |
+| Rules Engine (sim) | 8020 | MCP (streamable-http) |
+| Pricing Engine (sim) | 8021 | MCP (streamable-http) |
+| Integration System (sim) | 8022 | MCP (streamable-http) |
 | Dashboard UI | 3000 | Next.js |
 | PostgreSQL | 5432 | Database |
 | Redis | 6379 | Cache + Streams |

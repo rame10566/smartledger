@@ -1,5 +1,5 @@
 # SmartLedger — Project Overview & Status
-*Last updated: 2026-03-14*
+*Last updated: 2026-03-17*
 
 ---
 
@@ -31,7 +31,7 @@ All requirements are locked in `REQUIREMENTS.md` (20 sections, ~1000 lines).
 | **18 architecture gaps** | All identified and resolved (event delivery, concurrency, failure handling, security, idempotency, observability, etc.) |
 | **Security model** | 3 layers: TLS, JWT, per-tool authorization matrix. Validation proof tokens required for all ledger writes. |
 | **Data schemas** | Schema registry structure defined. Key schemas: event envelope, origination record, accounting record. |
-| **Simulated systems** | 10 systems defined: Oracle LOS, Salesforce LOS, LLAS, CRM, Payment, Insurance, Dealer, Customer Portal, Mobile App, IVR |
+| **Simulated systems** | 13 systems: Oracle LOS, Salesforce LOS, LLAS, CRM, Payment, Insurance, Dealer, Customer Portal, Mobile App, IVR, Rules Engine, Pricing Engine, **Integration System** |
 | **MCP servers** | 4 built servers (Validation, Ledger, Semantic AI, Reporting) + Dashboard API (REST) |
 | **Testing strategy** | 4 layers: unit, contract, integration, E2E. SVAL-01 to SVAL-10 are the E2E test scenarios. |
 | **Performance targets** | Phase 1: 100 events/min, <5s end-to-end latency |
@@ -59,56 +59,76 @@ All requirements are locked in `REQUIREMENTS.md` (20 sections, ~1000 lines).
 | **Repo** | Monorepo, Hybrid folder layout |
 | **MVP Target** | MVP-3: Full Stack Demo |
 
-### Phase 3 — Project Scaffold ✅ COMPLETE
+### Phase 3–7 — Implementation ✅ COMPLETE (Phases A–G)
 
-Full project structure created. Nothing to build from scratch — every component has its home.
+Full stack implemented and running. All agents, MCP servers, event flows, dashboard, and Hyperledger Fabric integration are complete.
 
 ```
 smartledger/
 ├── src/
-│   ├── agent/                    # AI Agent (Python) — STUB
+│   ├── agent/                    # AI Agent (Python) ✅
 │   │   ├── core/
-│   │   │   ├── event_loop.py     # Event loop — TODO
-│   │   │   ├── saga.py           # Saga checkpoints — TODO
-│   │   │   └── locks.py          # Per-contract locks — TODO
+│   │   │   ├── event_loop.py     # ✅ AgentEventLoop — XREADGROUP, lock, dispatch, ACK
+│   │   │   ├── saga.py           # ✅ SagaManager — checkpoint, resume, crash recovery
+│   │   │   ├── locks.py          # ✅ ContractLock — Redis SETNX/Lua safe release
+│   │   │   └── mcp_client.py     # ✅ MCP client connections to all servers
 │   │   ├── flows/
-│   │   │   ├── origination.py    # Origination flow — TODO
-│   │   │   ├── payment.py        # Payment flow — TODO
-│   │   │   └── pdf_ingestion.py  # PDF ingestion flow — TODO
-│   │   └── main.py               # Entry point — STUB
+│   │   │   ├── origination.py    # ✅ Origination happy/unhappy path
+│   │   │   ├── payment.py        # ✅ Payment flow (payment.received)
+│   │   │   └── pdf_ingestion.py  # ✅ PDF ingestion (Semantic AI + batch archive)
+│   │   └── main.py               # ✅ Bootstrap: connect, recover sagas, start loop
 │   ├── mcp_servers/
-│   │   ├── validation/server.py  # Validation Engine — STUB (tool signatures defined)
-│   │   ├── ledger/server.py      # Ledger MCP — STUB (tool signatures defined)
-│   │   ├── semantic_ai/          # Semantic AI — STUB (no server.py yet)
-│   │   ├── reporting/            # Reporting — STUB (no server.py yet)
-│   │   └── simulated/
-│   │       ├── oracle_los/server.py  # Oracle LOS — STUB
-│   │       └── [9 others]/          # Stubs (dirs + __init__.py only)
-│   ├── event_bus/                # Redis consumer — STUB (no consumer.py yet)
-│   ├── dashboard_api/            # FastAPI — STUB (no main.py yet)
+│   │   ├── validation/server.py  # ✅ validate_event, get_quarantined, rules CRUD
+│   │   ├── ledger/server.py      # ✅ write_record (proof token gated), query, state, audit
+│   │   ├── semantic_ai/server.py # ✅ extract_contract_fields, confidence scoring
+│   │   ├── reporting/server.py   # ✅ generate_report, list, get, export
+│   │   └── simulated/            # ✅ All 12 simulators
+│   │       ├── oracle_los/       # :8010 — originate_contract, get_contract
+│   │       ├── salesforce_los/   # :8011
+│   │       ├── llas/             # :8012 — get_account, get_balance
+│   │       ├── crm/              # :8013
+│   │       ├── payment/          # :8014
+│   │       ├── insurance/        # :8015
+│   │       ├── dealer/           # :8016
+│   │       ├── customer_portal/  # :8017
+│   │       ├── mobile_app/       # :8018
+│   │       ├── ivr/              # :8019
+│   │       ├── rules_engine/     # :8020 — credit-tier eligibility rules
+│   │       ├── pricing_engine/   # :8021 — rate cards + payment calculation
+│   │       └── integration/      # :8022 — integration layer data mover (NEW Phase H)
+│   ├── dashboard_api/            # ✅ FastAPI :8000
+│   │   ├── main.py               # ✅ CORS, PostgreSQL pool, lifespan
+│   │   ├── routers/contracts.py  # ✅ GET /contracts, lifecycle, audit, state
+│   │   ├── routers/quarantine.py # ✅ GET /quarantine (read-only audit trail)
+│   │   ├── routers/reports.py    # ✅ GET /reports, export
+│   │   └── middleware/           # ✅ PBAC, field filtering, access audit
 │   └── shared/
 │       ├── config.py             # ✅ All env vars, Settings class
 │       ├── logging.py            # ✅ Structured JSON logging (structlog)
-│       ├── models/               # Pydantic models — EMPTY (TODO)
-│       └── schemas/
-│           ├── event_envelope.json     # ✅ Done
-│           ├── origination_record.json # ✅ Done
-│           └── accounting_record.json  # ✅ Done
+│       ├── models/               # ✅ All Pydantic v2 models
+│       └── schemas/              # ✅ 15 JSON Schema files
 ├── apps/
-│   ├── dashboard-ui/             # Next.js — package.json + Dockerfile only
-│   └── chaincode/                # Node.js Fabric — package.json + index.ts stub
+│   ├── dashboard-ui/             # ✅ Next.js App Router
+│   │   └── src/app/
+│   │       ├── contracts/        # ✅ Contract list + detail
+│   │       ├── quarantine/       # ✅ Read-only quarantine audit trail
+│   │       └── reports/          # ✅ Report generation + export
+│   └── chaincode/                # ✅ Node.js Hyperledger Fabric chaincode
 ├── infra/
-│   ├── docker/
-│   │   ├── postgres/init.sql     # ✅ Full PostgreSQL schema (all tables)
-│   │   └── [6 Dockerfiles]       # ✅ All services
-│   └── fabric/                   # EMPTY — Fabric network config needed
-├── tests/                        # Structure only — no tests written yet
-├── docker-compose.yml            # ✅ All 11 services
-├── pyproject.toml                # ✅ uv workspace (8 packages)
-├── .env.example                  # ✅ All env vars documented
-├── .gitignore                    # ✅
-└── scripts/setup.sh              # ✅ One-command local setup
+│   ├── docker/postgres/init.sql  # ✅ Full PostgreSQL schema (all 6 schemas)
+│   ├── fabric/                   # ✅ Network config, channel setup
+│   └── [Dockerfiles]             # ✅ All services
+├── scripts/
+│   └── seed_demo.py              # ✅ Seeds demo contracts via Oracle LOS
+├── docker-compose.yml            # ✅ All 14 services (incl. Rules + Pricing engine)
+└── REQUIREMENTS.md               # ✅ Locked spec (20 sections)
 ```
+
+**SDG Validate-Only Boundary (enforced as of 2026-03-17):**
+SmartLedger is a validation gateway. It does NOT approve, override, or correct data. Quarantine is a **read-only audit trail** — the originating system must fix data and resubmit a new event.
+
+**Integration Layer Intercept (Phase H — pending):**
+SmartLedger intercepts at the Integration System boundary — the point where CRM, Portal, Mobile, and LOS push customer data changes to LLAS. Every contact, payment, and insurance update is validated before reaching LLAS, and conflicts between concurrent updates from different source systems are detected and held for LLAS Admin resolution.
 
 ---
 
@@ -185,27 +205,33 @@ Phase G — Full Stack (Hyperledger Fabric)
 
 | Area | Status | Notes |
 |---|---|---|
-| Requirements | ✅ Locked | REQUIREMENTS.md, all 20 sections |
+| Requirements | ✅ Locked | REQUIREMENTS.md, all 20 sections, SDG boundary enforced |
 | Architecture | ✅ Decided | All 18 gaps resolved |
 | Tech stack | ✅ Locked | All decisions made |
-| Proof token design | ✅ Decided | Signed JWT — see REQUIREMENTS.md §6.4 |
-| Dashboard notification | ✅ Decided | Polling for POC |
-| Build order | ✅ Confirmed | Phases A–G above |
-| Project structure | ✅ Scaffolded | All dirs + config files |
-| Docker Compose | ✅ Done | All 11 services |
+| Proof token design | ✅ Done | Signed JWT — see REQUIREMENTS.md §6.4 |
+| Dashboard notification | ✅ Done | Polling (10s interval) |
+| Build order | ✅ Done | Phases A–G complete |
+| Project structure | ✅ Done | Full monorepo implemented |
+| Docker Compose | ✅ Done | 14 services (all sims, core, infra) |
 | Dockerfiles | ✅ Done | All services |
-| PostgreSQL schema | ✅ Done | Correct names, all tables, proper constraints |
+| PostgreSQL schema | ✅ Done | All 6 schemas + tables + constraints |
 | JSON Schemas | ✅ Done | 15 files in subdirectory structure |
-| Pydantic models | ✅ Done | All models, full type coverage, `__init__.py` exports |
-| pyproject.toml deps | ✅ Done | pydantic-settings, structlog, pyjwt added |
-| Agent system prompt | ⏳ Phase C | Drafted at start of Phase C implementation |
-| Agent implementation | ⏳ Phase C | Stubs in place |
-| MCP server implementations | ⏳ Phase B | Tool signatures in place |
-| Dashboard API | ⏳ Phase E | No main.py yet |
-| Dashboard UI | ⏳ Phase E | package.json + Dockerfile only |
-| Chaincode | ⏳ Phase G | index.ts stub |
-| Fabric network config | ⏳ Phase G | infra/fabric/ empty by design |
-| Tests | ⏳ Phase D+ | Written alongside each phase |
+| Pydantic models | ✅ Done | All models, full type coverage |
+| Agent system prompt | ✅ Done | src/agent/main.py |
+| Agent core | ✅ Done | event_loop, saga, locks, mcp_client |
+| Agent flows | ✅ Done | origination, payment, pdf_ingestion |
+| MCP servers — core | ✅ Done | validation, ledger, semantic_ai, reporting |
+| MCP servers — simulated | ✅ Done | All 12 simulators (incl. Rules + Pricing Engine) |
+| Dashboard API | ✅ Done | FastAPI :8000 — contracts, quarantine (read-only), reports |
+| Dashboard UI | ✅ Done | Next.js :3000 — contracts, quarantine audit trail, reports |
+| Smart Data Gateway (PBAC) | ✅ Done | Party-based access control + field-level filtering |
+| Chaincode | ✅ Done | Node.js — SmartLedgerContract on Hyperledger Fabric |
+| Fabric network config | ✅ Done | infra/fabric/ — channel, crypto, setup scripts |
+| Fabric live writes | ✅ Done | WRITE_GUARD=false, Phase 1 mode |
+| Seed script | ✅ Done | scripts/seed_demo.py — 12 demo contracts via Oracle LOS |
+| SDG validate-only boundary | ✅ Enforced | No approve/override — quarantine is read-only audit trail |
+| Tests | ⏳ Partial | Unit + integration tests written alongside each phase; SVAL-05/07/08/11-16 pending |
+| Integration Layer (Phase H) | ⏳ Pending | Integration System MCP, customer profile flows, conflict detection + LLAS Admin resolution |
 
 ---
 
@@ -220,7 +246,7 @@ Phase G — Full Stack (Hyperledger Fabric)
 | `src/shared/schemas/` | All 15 JSON Schema files (subdirectory structure) |
 | `src/shared/models/` | All Pydantic v2 models (common, entities, records, validation, saga) |
 | `infra/docker/postgres/init.sql` | PostgreSQL initialization (all schemas + tables, correct names) |
-| `docker-compose.yml` | Local dev stack (all 11 services) |
+| `docker-compose.yml` | Local dev stack (14 services now; 15 with Integration System in Phase H) |
 | `.env.example` | All environment variables documented |
 | `scripts/setup.sh` | One-command local setup |
 | `pyproject.toml` | uv workspace root (8 Python packages) |
