@@ -148,7 +148,7 @@ sequenceDiagram
 
     Note over Agent: Checkpoint: LEDGER_WRITTEN
 
-    Agent->>LED: execute_state_transition(contract_id, "ORIGINATED→ACTIVE")
+    Agent->>LED: execute_state_transition(contract_id, ORIGINATED to ACTIVE)
     LED-->>Agent: StateTransitioned
 
     Note over Agent: Checkpoint: COMPLETED
