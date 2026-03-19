@@ -380,7 +380,8 @@ When two source systems submit conflicting updates to the same field on the same
     → Validates the selected value (business rules must still pass)
     → Issues proof token for the winning event
     → Marks winning event: status='resolved', resolved_by=admin_id, resolved_at=timestamp
-    → Marks losing event: status='rejected', rejection_code='CONFLICT_RESOLVED_BY_ADMIN'
+    → Marks losing event: status='resolved', rejection_code='CONFLICT_RESOLVED_BY_ADMIN'
+       (both sides are resolved — the losing side records why it was not applied)
     → Publishes: integration.conflict_resolved to Redis Streams
 6.  Agent picks up integration.conflict_resolved
     → Writes customer_update record to ledger with proof token + full resolution audit trail
@@ -857,7 +858,7 @@ src/shared/schemas/
 | `maturity_date`     | date    | Contract end date                            |
 | `origination_source`| enum    | `oracle_los` or `salesforce_los`             |
 | `contract_type`     | enum    | `loan` or `lease`                            |
-| `state`             | enum    | `originated`, `active`, `delinquent`, `paid_off`, `title_released` |
+| `state`             | enum    | `originated`, `active`, `delinquent`, `charged_off`, `paid_off`, `title_released` |
 | `data_hash`         | string  | SHA-256 hash of full off-chain record        |
 
 ### 7.3 Accounting Record Schema (Key Fields)
@@ -874,6 +875,53 @@ src/shared/schemas/
 | `source_event_id`   | string  | The event_id that triggered this record      |
 | `validation_proof`  | string  | Proof token used for this write              |
 | `data_hash`         | string  | SHA-256 hash of full off-chain record        |
+
+---
+
+### 7.6 Status & State Reference
+
+This section is the authoritative reference for all enum values used across SmartLedger. These values appear in the database, API responses, and the Governance Dashboard.
+
+#### Quarantine Status (`validation.quarantine.status`)
+
+| Value      | Meaning                                                                                         | Who Sets It               |
+|------------|-------------------------------------------------------------------------------------------------|---------------------------|
+| `pending`  | Event failed validation (data quality, business rule, or state eligibility). Awaiting correction and resubmission by the originating system. | Validation Engine         |
+| `conflict` | Two source systems submitted competing updates to the same field. Both events are quarantined as a matched pair via `conflict_pair_id`. Awaiting LLAS Admin resolution. | Validation Engine         |
+| `resolved` | The quarantine record has been closed. For `conflict` pairs: both sides move to `resolved` after the LLAS Admin selects the winner — the winning side records the applied value, the losing side records `rejection_code='CONFLICT_RESOLVED_BY_ADMIN'`. | Validation Engine (on admin resolution) |
+
+> **SDG Boundary:** There is no `approved` or `override` status. SmartLedger never grants exceptions. `pending` records are closed only when the originating system corrects and resubmits data that passes validation. Human review is limited to conflict adjudication.
+
+#### Contract State (`contracts.state.current_state`)
+
+| Value             | Meaning                                                                          |
+|-------------------|----------------------------------------------------------------------------------|
+| `originated`      | Contract has been received and validated. Ledger record written. Pre-activation. |
+| `active`          | Contract is active — payments being processed, no delinquency.                   |
+| `delinquent`      | Contract is past due. Remediation actions may apply.                             |
+| `charged_off`     | Contract has been written off as a loss. No further payment or profile updates permitted. |
+| `paid_off`        | All obligations fulfilled. Awaiting title release.                               |
+| `title_released`  | Title transferred to customer. Contract lifecycle complete.                      |
+
+> **Note:** Contracts seeded directly in LLAS (bypassing the origination flow) have no `contracts.state` row. The Dashboard API treats these as `active` by default.
+
+#### Integration Submission Status (`integration_system.submissions.status`)
+
+| Value        | Meaning                                                                                  |
+|--------------|------------------------------------------------------------------------------------------|
+| `pending`    | Submission received by the Integration System. Event published to Redis. Awaiting agent processing. |
+| `validated`  | SmartLedger validated the event and wrote it to the ledger. LLAS has been updated.       |
+| `quarantined`| SmartLedger rejected the event (data quality or business rule failure). Originating system must correct and resubmit. |
+| `conflict`   | SmartLedger detected a concurrent competing update from a different source. Both submissions quarantined pending LLAS Admin resolution. |
+
+#### Saga Step Status (`sagas.checkpoints.status`)
+
+| Value         | Meaning                                                    |
+|---------------|------------------------------------------------------------|
+| `in_progress` | The saga step has been started but not yet completed.      |
+| `completed`   | The saga step finished successfully.                       |
+| `failed`      | The saga step encountered an unrecoverable error.          |
+| `quarantined` | The flow ended in quarantine (validation failure path).    |
 
 ---
 

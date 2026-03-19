@@ -279,8 +279,8 @@ sequenceDiagram
 
     VAL->>VAL: Validate winning value (business rules must still pass)
     VAL->>VAL: Issue proof token for winning event
-    VAL->>VAL: Mark winning: status=resolved
-    VAL->>VAL: Mark losing: status=rejected, reason=CONFLICT_RESOLVED_BY_ADMIN
+    VAL->>VAL: Mark winning: status=resolved, resolved_by=admin_id
+    VAL->>VAL: Mark losing: status=resolved, rejection_code=CONFLICT_RESOLVED_BY_ADMIN
     VAL->>Bus: publish integration.conflict_resolved
 
     Bus->>Agent: deliver integration.conflict_resolved
@@ -406,7 +406,7 @@ erDiagram
 
     contracts_state {
         text contract_id PK
-        text current_state
+        text current_state "originated|active|delinquent|charged_off|paid_off|title_released"
         integer days_past_due
     }
 
@@ -416,7 +416,7 @@ erDiagram
         text contract_id
         uuid event_id
         text step
-        text status
+        text status "in_progress|completed|failed|quarantined"
         jsonb payload
     }
 
@@ -431,7 +431,8 @@ erDiagram
         uuid event_id
         text contract_id
         text rejection_code
-        text status
+        text status "pending|conflict|resolved"
+        text conflict_pair_id "links paired conflict rows"
         timestamptz sla_deadline
     }
 
@@ -449,7 +450,43 @@ erDiagram
 
 ---
 
-## 9. MCP Server Port Map
+## 9. Status & State Reference
+
+> Authoritative enum values used across database, APIs, and the Governance Dashboard. See REQUIREMENTS.md §7.6 for full definitions.
+
+### Quarantine Status (`validation.quarantine.status`)
+
+| Value      | Set by             | Meaning |
+|------------|--------------------|---------|
+| `pending`  | Validation Engine  | Failed validation — data quality, business rule, or state eligibility. Originating system must correct and resubmit. |
+| `conflict` | Validation Engine  | Two sources submitted competing updates to the same field. Both quarantined as a matched pair via `conflict_pair_id`. Awaiting LLAS Admin resolution. |
+| `resolved` | Validation Engine  | Closed. Both sides of a conflict pair move to `resolved` after admin adjudication — winning side applied, losing side records `CONFLICT_RESOLVED_BY_ADMIN`. |
+
+**No `approved` or `override` status exists.** SmartLedger never grants exceptions.
+
+### Contract State (`contracts.state.current_state`)
+
+| Value            | Meaning |
+|------------------|---------|
+| `originated`     | Received, validated, ledger written. Pre-activation. |
+| `active`         | In good standing. Default for LLAS-seeded contracts with no state row. |
+| `delinquent`     | Past due. |
+| `charged_off`    | Written off as loss. No further updates permitted. |
+| `paid_off`       | Fully paid. Awaiting title release. |
+| `title_released` | Title transferred. Lifecycle complete. |
+
+### Integration Submission Status
+
+| Value        | Meaning |
+|--------------|---------|
+| `pending`    | Submitted to Integration System. Event published to Redis. |
+| `validated`  | SmartLedger validated. Ledger written. LLAS updated. |
+| `quarantined`| Rejected by SmartLedger. Originating system must correct and resubmit. |
+| `conflict`   | Competing update detected. Both quarantined pending LLAS Admin resolution. |
+
+---
+
+## 10. MCP Server Port Map
 
 | Service | Port | Type |
 |---|---|---|
