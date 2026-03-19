@@ -79,7 +79,7 @@ async def list_contracts(
                     MIN(r.created_at)::text                AS first_seen,
                     MAX(r.created_at)::text                AS last_updated,
                     COUNT(*)                               AS record_count,
-                    COALESCE(s.current_state, 'unknown')   AS current_state,
+                    COALESCE(s.current_state, 'active')    AS current_state,
                     s.state_changed_at::text               AS state_changed_at
                 FROM contracts.records r
                 LEFT JOIN contracts.state s ON s.contract_id = r.contract_id
@@ -98,7 +98,7 @@ async def list_contracts(
                     MIN(r.created_at)::text                AS first_seen,
                     MAX(r.created_at)::text                AS last_updated,
                     COUNT(*)                               AS record_count,
-                    COALESCE(s.current_state, 'unknown')   AS current_state,
+                    COALESCE(s.current_state, 'active')    AS current_state,
                     s.state_changed_at::text               AS state_changed_at
                 FROM contracts.records r
                 LEFT JOIN contracts.state s ON s.contract_id = r.contract_id

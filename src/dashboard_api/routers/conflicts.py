@@ -91,7 +91,7 @@ async def list_conflicts(
     conflict_list = await validation.get_conflicts(contract_id=contract_id)
 
     await log_access(pool=request.app.state.pool, ctx=ctx,
-                     resource="/api/conflicts", ip_address=_client_ip(request))
+                     endpoint="/api/conflicts", ip_address=_client_ip(request))
 
     return conflict_list
 
@@ -147,7 +147,7 @@ async def get_conflict_detail(
         log.warning("conflict_detail_llas_unavailable", contract_id=contract_id, error=str(e))
 
     await log_access(pool=pool, ctx=ctx,
-                     resource=f"/api/conflicts/{conflict_pair_id}",
+                     endpoint=f"/api/conflicts/{conflict_pair_id}",
                      contract_id=contract_id, ip_address=_client_ip(request))
 
     return {
@@ -189,7 +189,7 @@ async def resolve_conflict(
     await log_access(
         pool=request.app.state.pool,
         ctx=ctx,
-        resource=f"/api/conflicts/{conflict_pair_id}/resolve",
+        endpoint=f"/api/conflicts/{conflict_pair_id}/resolve",
         ip_address=_client_ip(request),
     )
 
