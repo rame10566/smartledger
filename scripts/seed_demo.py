@@ -208,31 +208,28 @@ async def _seed_charged_off_contract(contract_id: str) -> None:
     """
     Insert a minimal charged-off contract row into PostgreSQL so that
     Scenario E has a real state to validate against.
-    Uses ON CONFLICT so it is safe to re-run.
+
+    Runs via `docker exec smartledger-postgres psql` to avoid local
+    PostgreSQL instances intercepting the connection.
     """
-    import asyncpg
-    pg_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql://smartledger:smartledger_dev@localhost:5432/smartledger",
+    import subprocess
+
+    sql = (
+        f"INSERT INTO contracts.state"
+        f" (contract_id, current_state, previous_state, state_changed_at, days_past_due, updated_at)"
+        f" VALUES ('{contract_id}', 'charged_off', 'active', NOW(), 90, NOW())"
+        f" ON CONFLICT (contract_id) DO UPDATE"
+        f"   SET current_state = 'charged_off', previous_state = 'active',"
+        f"       days_past_due = 90, state_changed_at = NOW(), updated_at = NOW();"
     )
-    conn = await asyncpg.connect(pg_url)
-    try:
-        await conn.execute(
-            """
-            INSERT INTO contracts.state
-                (contract_id, current_state, previous_state, state_changed_at, days_past_due, updated_at)
-            VALUES ($1, 'charged_off', 'active', NOW(), 90, NOW())
-            ON CONFLICT (contract_id) DO UPDATE
-                SET current_state    = 'charged_off',
-                    previous_state   = 'active',
-                    days_past_due    = 90,
-                    state_changed_at = NOW(),
-                    updated_at       = NOW()
-            """,
-            contract_id,
-        )
-    finally:
-        await conn.close()
+    result = subprocess.run(
+        ["docker", "exec", "smartledger-postgres",
+         "psql", "-U", "smartledger", "-d", "smartledger", "-c", sql],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"psql via docker exec failed: {result.stderr.strip()}")
 
 
 async def _wait_for_integration(integration_ref: str, timeout: int = 20) -> bool:
@@ -333,9 +330,10 @@ async def _seed_integration_scenarios(wait: bool) -> None:
     print("  [A] Clean CRM address update (ORC-2024-001 / James Carter)")
     try:
         sr = await _mcp_call(CRM_URL, "create_service_request", {
-            "customer_id": "CUST-001",
-            "sr_type":     "CONTACT_UPDATE",
-            "changes": {
+            "contract_id":       "ORC-2024-001",
+            "customer_id":       "CUST-001",
+            "sr_type":           "CONTACT_UPDATE",
+            "requested_changes": {
                 "address": {
                     "street":  "456 Oak Avenue",
                     "city":    "Dallas",
@@ -344,14 +342,12 @@ async def _seed_integration_scenarios(wait: bool) -> None:
                     "country": "USA",
                 }
             },
-            "notes": "Customer requested address change — verified by phone",
         })
         sr_id = sr.get("sr_id", "?") if isinstance(sr, dict) else "?"
         print(f"       SR created: {sr_id}")
 
         complete = await _mcp_call(CRM_URL, "complete_service_request", {
-            "sr_id":        sr_id,
-            "contract_id":  "ORC-2024-001",
+            "sr_id": sr_id,
         })
         int_ref = complete.get("integration_ref", "") if isinstance(complete, dict) else ""
         print(f"       SR completed → integration_ref={int_ref}")
@@ -401,9 +397,10 @@ async def _seed_integration_scenarios(wait: bool) -> None:
     try:
         # Source A: CRM submits address update
         sr_c = await _mcp_call(CRM_URL, "create_service_request", {
-            "customer_id": "CUST-002",
-            "sr_type":     "CONTACT_UPDATE",
-            "changes": {
+            "contract_id":       "ORC-2024-002",
+            "customer_id":       "CUST-002",
+            "sr_type":           "CONTACT_UPDATE",
+            "requested_changes": {
                 "address": {
                     "street":  "789 River Road",
                     "city":    "Austin",
@@ -412,12 +409,10 @@ async def _seed_integration_scenarios(wait: bool) -> None:
                     "country": "USA",
                 }
             },
-            "notes": "Agent verified mailing address",
         })
         sr_id_c = sr_c.get("sr_id", "?") if isinstance(sr_c, dict) else "?"
         complete_c = await _mcp_call(CRM_URL, "complete_service_request", {
-            "sr_id":       sr_id_c,
-            "contract_id": "ORC-2024-002",
+            "sr_id": sr_id_c,
         })
         int_ref_c1 = complete_c.get("integration_ref", "") if isinstance(complete_c, dict) else ""
         print(f"       CRM submission → integration_ref={int_ref_c1}")
@@ -486,18 +481,24 @@ async def _seed_integration_scenarios(wait: bool) -> None:
         await _seed_charged_off_contract(_CHARGED_OFF_CONTRACT)
         print(f"       Seeded {_CHARGED_OFF_CONTRACT} → state=charged_off (90 DPD)")
 
-        portal_e = await _mcp_call(PORTAL_URL, "update_payment_method", {
-            "contract_id": _CHARGED_OFF_CONTRACT,
-            "customer_id": "CUST-001",
+        # Submit directly to Integration System — portal's contract-customer
+        # association check would reject a synthetic contract id, so we go
+        # one layer down (still a valid integration flow — LOS or admin tool).
+        int_result_e = await _mcp_call(INTEGRATION_URL, "submit_payment_update", {
+            "contract_id":   _CHARGED_OFF_CONTRACT,
+            "source_system": "customer_portal",
             "changes": {
-                "bank_name":      "Wells Fargo",
-                "account_last4":  "4321",
-                "routing_number": "121000248",
-                "payment_day":    1,
+                "payment_info": {
+                    "bank_name":      "Wells Fargo",
+                    "account_last4":  "4321",
+                    "routing_number": "121000248",
+                    "payment_day":    1,
+                }
             },
+            "source_ref": f"SEED-E-{uuid.uuid4().hex[:8].upper()}",
         })
-        int_ref_e = portal_e.get("integration_ref", "") if isinstance(portal_e, dict) else ""
-        print(f"       Portal update submitted → integration_ref={int_ref_e}")
+        int_ref_e = int_result_e.get("integration_ref", "") if isinstance(int_result_e, dict) else ""
+        print(f"       Integration update submitted → integration_ref={int_ref_e}")
 
         if wait and int_ref_e:
             await _wait_for_integration(int_ref_e)
