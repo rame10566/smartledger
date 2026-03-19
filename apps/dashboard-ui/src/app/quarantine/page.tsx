@@ -7,10 +7,9 @@ import { listQuarantine, type QuarantineRecord } from "@/lib/api";
 
 function StatusBadge({ status }: { status: QuarantineRecord["status"] }) {
   const colours: Record<string, string> = {
-    pending:   "bg-yellow-100 text-yellow-800",
-    approved:  "bg-green-100 text-green-800",
-    rejected:  "bg-red-100 text-red-800",
-    escalated: "bg-orange-100 text-orange-800",
+    pending:  "bg-yellow-100 text-yellow-800",
+    conflict: "bg-orange-100 text-orange-800",
+    resolved: "bg-green-100 text-green-800",
   };
   return (
     <span
@@ -146,7 +145,8 @@ export default function QuarantinePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Validation Failures</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Events that failed validation — data must be corrected in the originating system and resubmitted
+            Read-only audit trail — data must be corrected in the originating system and resubmitted.
+            SmartLedger does not override or approve exceptions.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -161,6 +161,7 @@ export default function QuarantinePage() {
             onChange={(e) => setFilter(e.target.value)}
           >
             <option value="pending">Pending</option>
+            <option value="conflict">Conflict</option>
             <option value="">All</option>
           </select>
           <button

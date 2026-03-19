@@ -56,7 +56,7 @@ export interface QuarantineRecord {
   rejection_detail: string | null;
   context_snapshot: Record<string, unknown> | null;
   original_payload: Record<string, unknown> | null;
-  status:           "pending" | "approved" | "rejected" | "escalated";
+  status:           "pending" | "conflict" | "resolved";
   escalation_level: number;
   reviewed_by:      string | null;
   reviewed_at:      string | null;
