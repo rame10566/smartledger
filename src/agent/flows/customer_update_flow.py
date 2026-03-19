@@ -94,7 +94,12 @@ class CustomerUpdateFlow:
         )
 
         llas_profile = await llas.get_customer_profile(contract_id)
-        ledger_state  = await ledger.get_state(contract_id)
+        try:
+            ledger_state = await ledger.get_state(contract_id)
+        except Exception:
+            # Contract may predate this stack (e.g. LLAS-seeded demo contracts).
+            # Default to empty — validation will treat missing state as active.
+            ledger_state = {}
 
         # For conflict_resolved: get last customer_update record timestamp for stale-sync check
         last_customer_update_at: str | None = None

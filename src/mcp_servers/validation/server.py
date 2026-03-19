@@ -299,8 +299,10 @@ async def _quarantine_event(
                 conflict_pair_id,
             )
 
-            # If this is a conflict, also update the other quarantine entry
-            if is_conflict and conflicting_event_id and conflict_pair_id:
+            # If this is a conflict against an existing quarantine row, mark it
+            # (LEDGER:-prefixed ids refer to committed ledger records, not quarantine)
+            if (is_conflict and conflicting_event_id and conflict_pair_id
+                    and not conflicting_event_id.startswith("LEDGER:")):
                 await conn.execute(
                     """
                     UPDATE validation.quarantine
@@ -513,6 +515,7 @@ async def _check_conflict(
     source_system: str,
     changes: dict,
     event_id: str,
+    source_reference: str = "",
 ) -> str | None:
     """
     Check if any pending quarantine entry conflicts with this update
@@ -555,6 +558,54 @@ async def _check_conflict(
             # Conflict = overlapping top-level change keys
             if changed_keys & other_keys:
                 return str(row["event_id"])
+        except Exception:
+            continue
+
+    # Also check recent ledger records (customer_update) within a 5-minute window.
+    # All integration events share source_system='integration_system', so we
+    # distinguish the original upstream channel via source_reference prefix:
+    #   SR-xxxx          → crm
+    #   PORTAL-SESSION-  → customer_portal
+    #   MOB-SESSION-     → mobile_app
+    #   IVR-             → ivr
+    #   ORACLE-SYNC-     → oracle_los
+    # We treat two records as "same source" when their source_reference starts
+    # with the same token before the first hyphen+segment boundary.
+    def _src_prefix(ref: str) -> str:
+        """Return the channel-type prefix of a source_reference."""
+        parts = (ref or "").split("-")
+        # PORTAL-SESSION-xxx → "PORTAL"
+        # MOB-SESSION-xxx    → "MOB"
+        # SR-2026-xxx        → "SR"
+        # ORACLE-SYNC-xxx    → "ORACLE"
+        return parts[0].upper() if parts else ""
+
+    current_prefix = _src_prefix(source_reference) if source_reference else ""
+
+    async with _pool.acquire() as conn:
+        ledger_rows = await conn.fetch(
+            """
+            SELECT record_id::text, payload
+            FROM contracts.records
+            WHERE contract_id = $1
+              AND record_type = 'customer_update'
+              AND created_at  > NOW() - INTERVAL '5 minutes'
+            ORDER BY created_at DESC
+            LIMIT 10
+            """,
+            contract_id,
+        )
+
+    for row in ledger_rows:
+        try:
+            rec = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"])
+            other_ref    = rec.get("source_reference", "")
+            other_prefix = _src_prefix(other_ref)
+            # Different upstream channel → potential conflict
+            if current_prefix and other_prefix and current_prefix != other_prefix:
+                other_field_names = set(rec.get("field_names", []))
+                if changed_keys & other_field_names:
+                    return f"LEDGER:{row['record_id']}"
         except Exception:
             continue
 
@@ -846,9 +897,12 @@ async def validate_event(request: dict) -> dict:
         failures = _validate_customer_update(payload, context, event_type)
         # Conflict check: if no other failures, look for competing pending updates
         if not failures:
-            source_system = event_envelope.get("source_system", "")
-            changes = payload.get("changes", {})
-            conflicting_event_id = await _check_conflict(contract_id, source_system, changes, event_id)
+            source_system    = event_envelope.get("source_system", "")
+            changes          = payload.get("changes", {})
+            source_reference = payload.get("source_ref", "") or payload.get("source_reference", "")
+            conflicting_event_id = await _check_conflict(
+                contract_id, source_system, changes, event_id, source_reference
+            )
             if conflicting_event_id:
                 # Quarantine this event AND update the other event to conflict status
                 conflict_pair_id = str(uuid.uuid4())
