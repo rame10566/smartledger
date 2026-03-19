@@ -448,15 +448,24 @@ async def _seed_integration_scenarios(wait: bool) -> None:
     await asyncio.sleep(0.5)
 
     # ── Scenario D: Oracle LOS stale sync ────────────────────────────────────
-    # ORC-2024-001 was already updated via CRM (Scenario A).
-    # Syncing the original LOS data now should be rejected as STALE_LOS_SYNC.
+    # ORC-2024-001 was already updated via CRM (Scenario A) moments ago.
+    # Simulate Oracle LOS sending a sync with data timestamped from 2020 —
+    # clearly older than the validated LLAS record.  Must quarantine STALE_LOS_SYNC.
     print("\n  [D] Oracle LOS stale sync (ORC-2024-001) → expect STALE_LOS_SYNC")
     try:
-        sync_result = await _mcp_call(ORACLE_LOS_URL, "sync_to_llas", {
-            "contract_id": "ORC-2024-001",
+        sync_result = await _mcp_call(INTEGRATION_URL, "submit_llas_sync", {
+            "contract_id":   "ORC-2024-001",
+            "source_system": "oracle_los",
+            "sync_payload": {
+                "contact": {
+                    "email": "james.carter.old@example.com",
+                    "phone": "555-000-0000",
+                },
+                "los_updated_at": "2020-01-15T08:00:00Z",   # stale — pre-dates LLAS record
+            },
         })
         int_ref_d = sync_result.get("integration_ref", "") if isinstance(sync_result, dict) else ""
-        print(f"       Oracle LOS sync submitted → integration_ref={int_ref_d}")
+        print(f"       Oracle LOS stale sync submitted → integration_ref={int_ref_d}")
 
         if wait and int_ref_d:
             await _wait_for_integration(int_ref_d)
