@@ -204,6 +204,37 @@ QUARANTINE_CONTRACT = {
 # Poll ledger until origination record appears
 # ---------------------------------------------------------------------------
 
+async def _seed_charged_off_contract(contract_id: str) -> None:
+    """
+    Insert a minimal charged-off contract row into PostgreSQL so that
+    Scenario E has a real state to validate against.
+    Uses ON CONFLICT so it is safe to re-run.
+    """
+    import asyncpg
+    pg_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://smartledger:smartledger_dev@localhost:5432/smartledger",
+    )
+    conn = await asyncpg.connect(pg_url)
+    try:
+        await conn.execute(
+            """
+            INSERT INTO contracts.state
+                (contract_id, current_state, previous_state, state_changed_at, days_past_due, updated_at)
+            VALUES ($1, 'charged_off', 'active', NOW(), 90, NOW())
+            ON CONFLICT (contract_id) DO UPDATE
+                SET current_state    = 'charged_off',
+                    previous_state   = 'active',
+                    days_past_due    = 90,
+                    state_changed_at = NOW(),
+                    updated_at       = NOW()
+            """,
+            contract_id,
+        )
+    finally:
+        await conn.close()
+
+
 async def _wait_for_integration(integration_ref: str, timeout: int = 20) -> bool:
     """Poll Integration System until the submission reaches 'validated' or 'quarantined'."""
     deadline = time.time() + timeout
@@ -294,6 +325,7 @@ async def _seed_integration_scenarios(wait: bool) -> None:
       B — Customer Portal payment method update (ORC-2024-001)
       C — CRM + Portal concurrent address conflict (ORC-2024-002, Maria Gonzalez)
       D — Oracle LOS stale sync (ORC-2024-001) → STALE_LOS_SYNC quarantine
+      E — Portal payment update on charged-off contract → CONTRACT_STATE_INELIGIBLE
     """
     print("\n── Phase H Integration Scenarios ────────────────────────────────\n")
 
@@ -439,6 +471,42 @@ async def _seed_integration_scenarios(wait: bool) -> None:
             print(f"       Final status: {final}  (expected: quarantined / STALE_LOS_SYNC)")
     except Exception as e:
         print(f"       ✗ Scenario D failed (LOS may not have ORC-2024-001): {e}")
+
+    await asyncio.sleep(0.5)
+
+    # ── Scenario E: Payment update on charged-off contract ────────────────────
+    # Pre-seed a contract in charged_off state, then submit a payment method
+    # change via the Portal.  Validation should reject with
+    # CONTRACT_STATE_INELIGIBLE because payment updates are not permitted on
+    # accounts that have been charged off.
+    _CHARGED_OFF_CONTRACT = "DEMO-CHARGED-OFF-001"
+    print(f"\n  [E] Payment update on charged-off contract ({_CHARGED_OFF_CONTRACT})")
+    print(f"       → expect CONTRACT_STATE_INELIGIBLE quarantine")
+    try:
+        await _seed_charged_off_contract(_CHARGED_OFF_CONTRACT)
+        print(f"       Seeded {_CHARGED_OFF_CONTRACT} → state=charged_off (90 DPD)")
+
+        portal_e = await _mcp_call(PORTAL_URL, "update_payment_method", {
+            "contract_id": _CHARGED_OFF_CONTRACT,
+            "customer_id": "CUST-001",
+            "changes": {
+                "bank_name":      "Wells Fargo",
+                "account_last4":  "4321",
+                "routing_number": "121000248",
+                "payment_day":    1,
+            },
+        })
+        int_ref_e = portal_e.get("integration_ref", "") if isinstance(portal_e, dict) else ""
+        print(f"       Portal update submitted → integration_ref={int_ref_e}")
+
+        if wait and int_ref_e:
+            await _wait_for_integration(int_ref_e)
+            status_result = await _mcp_call(INTEGRATION_URL, "get_integration_status",
+                                             {"integration_ref": int_ref_e})
+            final = status_result.get("status", "?") if isinstance(status_result, dict) else "?"
+            print(f"       Final status: {final}  (expected: quarantined / CONTRACT_STATE_INELIGIBLE)")
+    except Exception as e:
+        print(f"       ✗ Scenario E failed: {e}")
 
     print()
 

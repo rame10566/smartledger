@@ -138,7 +138,7 @@ services:
       - "8018:8018"   # mobile_app
       - "8019:8019"   # ivr
       - "8020:8020"   # rules_engine
-      - "8021:8021"   # pricing_engine
+      # - "8021:8021"   # pricing_engine — host port in use; container-internal still works
       - "8022:8022"   # integration_system
     depends_on:
       redis:
