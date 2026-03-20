@@ -78,10 +78,10 @@ Application: &ApplicationDefaults
 Orderer: &OrdererDefaults
   OrdererType: etcdraft
   Addresses:
-    - orderer.smartledger.local:7050
+    - orderer.orderer.smartledger.local:7050
   EtcdRaft:
     Consenters:
-      - Host: orderer.smartledger.local
+      - Host: orderer.orderer.smartledger.local
         Port: 7050
         ClientTLSCert: ./crypto-material/ordererOrganizations/orderer.smartledger.local/orderers/orderer.orderer.smartledger.local/tls/server.crt
         ServerTLSCert: ./crypto-material/ordererOrganizations/orderer.smartledger.local/orderers/orderer.orderer.smartledger.local/tls/server.crt
@@ -122,20 +122,14 @@ Channel: &ChannelDefaults
     <<: *ChannelCapabilities
 
 Profiles:
-  SmartLedgerGenesis:
+  # Fabric 2.3+ Channel Participation API: create genesis block directly for
+  # the application channel — no system channel required.
+  SmartLedgerChannel:
     <<: *ChannelDefaults
     Orderer:
       <<: *OrdererDefaults
       Organizations:
         - *OrdererOrg
-    Consortiums:
-      SmartLedgerConsortium:
-        Organizations:
-          - *SmartLedgerOrg
-
-  SmartLedgerChannel:
-    Consortium: SmartLedgerConsortium
-    <<: *ChannelDefaults
     Application:
       <<: *ApplicationDefaults
       Organizations:

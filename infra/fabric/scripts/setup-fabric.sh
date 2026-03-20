@@ -72,41 +72,20 @@ else
 fi
 
 # ── 3. Create channel artifacts ────────────────────────────────────────────────
+# Fabric 2.3+ uses the Channel Participation API (osnadmin) — no system channel.
+# We create a genesis block directly for the application channel.
 mkdir -p artifacts
 
-if [[ ! -f "artifacts/genesis.block" ]]; then
-  info "Creating orderer genesis block…"
-  FABRIC_CFG_PATH="$FABRIC_DIR" \
-    configtxgen \
-      -profile SmartLedgerGenesis \
-      -channelID system-channel \
-      -outputBlock ./artifacts/genesis.block
-  ok "Genesis block created"
-else
-  ok "Genesis block already exists"
-fi
-
-if [[ ! -f "artifacts/channel.tx" ]]; then
-  info "Creating channel transaction…"
+if [[ ! -f "artifacts/${CHANNEL_NAME}.block" ]]; then
+  info "Creating application channel genesis block (Fabric 2.5 style)…"
   FABRIC_CFG_PATH="$FABRIC_DIR" \
     configtxgen \
       -profile SmartLedgerChannel \
       -channelID "$CHANNEL_NAME" \
-      -outputCreateChannelTx ./artifacts/channel.tx
-  ok "Channel transaction created"
+      -outputBlock "./artifacts/${CHANNEL_NAME}.block"
+  ok "Channel genesis block created"
 else
-  ok "Channel transaction already exists"
-fi
-
-if [[ ! -f "artifacts/SmartLedgerOrgAnchors.tx" ]]; then
-  info "Creating anchor peer update…"
-  FABRIC_CFG_PATH="$FABRIC_DIR" \
-    configtxgen \
-      -profile SmartLedgerChannel \
-      -channelID "$CHANNEL_NAME" \
-      -outputAnchorPeersUpdate ./artifacts/SmartLedgerOrgAnchors.tx \
-      -asOrg SmartLedgerOrg
-  ok "Anchor peer update created"
+  ok "Channel genesis block already exists"
 fi
 
 # ── 4. Start the Fabric network ────────────────────────────────────────────────
@@ -126,36 +105,39 @@ export CORE_PEER_LOCALMSPID=SmartLedgerOrgMSP
 export CORE_PEER_MSPCONFIGPATH="$ADMIN_MSP"
 export CORE_PEER_ADDRESS=localhost:7051
 export CORE_PEER_TLS_ROOTCERT_FILE="$PEER_TLS"
+# peer CLI needs core.yaml — it lives in the extracted config/ subdirectory
+export FABRIC_CFG_PATH="$FABRIC_DIR/config"
 
-# Create channel
-if ! peer channel list 2>/dev/null | grep -q "$CHANNEL_NAME"; then
-  info "Creating channel $CHANNEL_NAME…"
-  peer channel create \
-    -o localhost:7050 \
-    -c "$CHANNEL_NAME" \
-    -f "$FABRIC_DIR/artifacts/channel.tx" \
-    --outputBlock "$FABRIC_DIR/artifacts/${CHANNEL_NAME}.block" \
-    --tls \
-    --cafile "$ORDERER_TLS"
-  ok "Channel created"
+# Fabric 2.5: use osnadmin Channel Participation API to join orderer to channel
+ORDERER_ADMIN_TLS="$FABRIC_DIR/crypto-material/ordererOrganizations/orderer.smartledger.local/orderers/orderer.orderer.smartledger.local/tls"
+ADMIN_TLS_CERT="$ORDERER_ADMIN_TLS/server.crt"
+ADMIN_TLS_KEY="$ORDERER_ADMIN_TLS/server.key"
+ADMIN_TLS_CA="$ORDERER_ADMIN_TLS/ca.crt"
+
+if ! osnadmin channel list -o localhost:7053 --ca-file "$ADMIN_TLS_CA" \
+     --client-cert "$ADMIN_TLS_CERT" --client-key "$ADMIN_TLS_KEY" 2>/dev/null | grep -q "$CHANNEL_NAME"; then
+  info "Joining orderer to channel $CHANNEL_NAME via osnadmin…"
+  osnadmin channel join \
+    --channelID "$CHANNEL_NAME" \
+    --config-block "$FABRIC_DIR/artifacts/${CHANNEL_NAME}.block" \
+    -o localhost:7053 \
+    --ca-file "$ADMIN_TLS_CA" \
+    --client-cert "$ADMIN_TLS_CERT" \
+    --client-key "$ADMIN_TLS_KEY"
+  ok "Orderer joined channel"
 else
-  ok "Channel already exists"
+  ok "Orderer already on channel"
 fi
 
-# Join peer
-info "Joining peer to channel…"
-peer channel join \
-  -b "$FABRIC_DIR/artifacts/${CHANNEL_NAME}.block"
-ok "Peer joined channel"
-
-# Update anchor peer
-info "Updating anchor peer…"
-peer channel update \
-  -o localhost:7050 \
-  -c "$CHANNEL_NAME" \
-  -f "$FABRIC_DIR/artifacts/SmartLedgerOrgAnchors.tx" \
-  --tls \
-  --cafile "$ORDERER_TLS" || warn "Anchor peer update failed (may already be set)"
+# Join peer to channel
+if ! peer channel list 2>/dev/null | grep -q "$CHANNEL_NAME"; then
+  info "Joining peer to channel $CHANNEL_NAME…"
+  peer channel join \
+    -b "$FABRIC_DIR/artifacts/${CHANNEL_NAME}.block"
+  ok "Peer joined channel"
+else
+  ok "Peer already on channel"
+fi
 
 # ── 6. Install and instantiate chaincode ───────────────────────────────────────
 CC_DIR="$CHAINCODE_DIR/smartledger-cc"

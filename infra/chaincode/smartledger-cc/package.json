@@ -7,9 +7,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "fabric-chaincode-node start"
   },
   "dependencies": {
-    "fabric-shim": "^2.2.3"
+    "fabric-shim": "^2.5.0"
   }
 }

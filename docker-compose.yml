@@ -71,10 +71,31 @@ services:
       - DATABASE_URL=postgresql://smartledger:${POSTGRES_PASSWORD:-smartledger_dev}@postgres:5432/smartledger
       - WRITE_GUARD=${WRITE_GUARD:-true}
       - PHASE=${PHASE:-0}
-      - FABRIC_PEER_ENDPOINT=${FABRIC_PEER_ENDPOINT:-}
+      # ── Hyperledger Fabric (Phase 1+, WRITE_GUARD=false) ────────────────────
+      # Peer / orderer endpoints (DNS names on smartledger_fabric_net)
+      - FABRIC_PEER_ENDPOINT=peer0.org1.smartledger.local:7051
+      - FABRIC_ORDERER_ENDPOINT=orderer.orderer.smartledger.local:7050
+      - FABRIC_CHANNEL=${FABRIC_CHANNEL:-smartledger-channel}
+      - FABRIC_CHAINCODE=${FABRIC_CHAINCODE:-smartledger-cc}
+      - FABRIC_MSP_ID=${FABRIC_MSP_ID:-SmartLedgerOrgMSP}
+      # TLS / crypto paths (inside container; crypto-material mounted below)
+      - FABRIC_TLS_CERT_PATH=/fabric/crypto/peerOrganizations/org1.smartledger.local/peers/peer0.org1.smartledger.local/tls/ca.crt
+      - FABRIC_ORDERER_TLS_PATH=/fabric/crypto/ordererOrganizations/orderer.smartledger.local/orderers/orderer.orderer.smartledger.local/tls/ca.crt
+      - FABRIC_ADMIN_MSP_PATH=/fabric/crypto/peerOrganizations/org1.smartledger.local/users/Admin@org1.smartledger.local/msp
+      - FABRIC_CFG_PATH=/etc/hyperledger/fabric
+      - FABRIC_BIN_PATH=/usr/local/bin
+      # ── Service metadata ────────────────────────────────────────────────────
       - SERVICE_NAME=mcp-ledger
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION=false
+      - JWT_SECRET=${JWT_SECRET:-change-me-jwt-secret}
+      - VALIDATION_JWT_SECRET=${VALIDATION_JWT_SECRET:-change-me-validation-jwt-secret}
+    volumes:
+      # Crypto material mount (required when WRITE_GUARD=false / Phase 1+)
+      - ./infra/fabric/crypto-material:/fabric/crypto:ro
+    networks:
+      - default
+      - fabric_net
     ports:
       - "8002:8002"
     depends_on:
@@ -221,3 +242,8 @@ volumes:
 networks:
   default:
     name: smartledger-network
+  # External Fabric network — created by infra/fabric/docker-compose.fabric.yml
+  # Only joined by mcp-ledger when Phase 1 (WRITE_GUARD=false) is active.
+  fabric_net:
+    external: true
+    name: smartledger_fabric_net

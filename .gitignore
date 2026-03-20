@@ -60,3 +60,11 @@ generated/
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 *.log
 logs/
+
+# Fabric generated artifacts (binaries, crypto material, channel artifacts)
+infra/fabric/bin/
+infra/fabric/builders/
+infra/fabric/config/
+infra/fabric/crypto-material/
+infra/fabric/artifacts/*.block
+infra/fabric/artifacts/*.tar.gz
