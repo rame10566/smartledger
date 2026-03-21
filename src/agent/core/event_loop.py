@@ -129,8 +129,16 @@ class AgentEventLoop:
                 logger.info("event_loop_cancelled")
                 break
             except Exception as e:
-                # Log unexpected errors and back off briefly before retrying
-                logger.error("event_loop_unexpected_error", error=str(e))
+                # If the stream/group was wiped (e.g. Redis flush), recreate and retry
+                if "NOGROUP" in str(e):
+                    logger.warning("event_loop_nogroup_recovery",
+                                   error=str(e), action="recreating_consumer_group")
+                    try:
+                        await self.setup()
+                    except Exception as setup_err:
+                        logger.error("event_loop_setup_failed", error=str(setup_err))
+                else:
+                    logger.error("event_loop_unexpected_error", error=str(e))
                 await asyncio.sleep(1)
 
         logger.info("event_loop_stopped", consumer=self.consumer_name)

@@ -11,9 +11,9 @@
 ##   6. Installs and instantiates the smartledger-cc chaincode
 ##
 ## Prerequisites:
-##   - Docker Desktop / Docker Engine running
+##   - Docker Engine 20.10+ with Compose v2 plugin
 ##   - curl, tar
-##   - Node.js 18+ (for chaincode dependencies)
+##   - Node.js 18+ (optional — Docker is used as fallback if npm is not found)
 ##
 ## Usage:
 ##   cd infra/fabric
@@ -143,7 +143,18 @@ fi
 CC_DIR="$CHAINCODE_DIR/smartledger-cc"
 
 info "Installing chaincode Node.js dependencies…"
-(cd "$CC_DIR" && npm install --quiet)
+# Use host npm if available; otherwise fall back to Docker so Node.js is not
+# required as a host prerequisite on Linux.
+if command -v npm &>/dev/null; then
+  (cd "$CC_DIR" && npm install --quiet)
+else
+  warn "npm not found on host — installing chaincode deps via Docker (node:22-alpine)"
+  docker run --rm \
+    -v "$CC_DIR:/chaincode" \
+    -w /chaincode \
+    node:22-alpine \
+    sh -c "npm install --quiet"
+fi
 
 info "Packaging chaincode…"
 peer lifecycle chaincode package \

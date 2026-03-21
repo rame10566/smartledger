@@ -277,34 +277,37 @@ async def _wait_for_ledger(contract_id: str, timeout: int = 30) -> bool:
 
 async def _clean_stale_data(redis_url: str) -> None:
     """Wipe all contract/saga/quarantine data from PostgreSQL and Redis stream."""
-    import asyncpg
+    import subprocess
 
-    pg_url = os.getenv("DATABASE_URL", "postgresql://smartledger:smartledger_dev@localhost:5432/smartledger")
-    print("  Cleaning PostgreSQL tables...")
-    conn = await asyncpg.connect(pg_url)
-    try:
-        await conn.execute("TRUNCATE contracts.records, contracts.state CASCADE")
-        await conn.execute("TRUNCATE validation.quarantine CASCADE")
-        await conn.execute("TRUNCATE sagas.checkpoints CASCADE")
-        await conn.execute("TRUNCATE audit.log CASCADE")
-        # Clear idempotency table if it exists
-        try:
-            await conn.execute("TRUNCATE validation.used_proof_tokens CASCADE")
-        except Exception:
-            pass
-        try:
-            await conn.execute("TRUNCATE sagas.idempotency CASCADE")
-        except Exception:
-            pass
-    finally:
-        await conn.close()
+    # Use docker exec to reach the correct container — avoids conflict with any
+    # locally-installed Postgres instance that may also be listening on :5432.
+    sql = (
+        "TRUNCATE contracts.records, contracts.state CASCADE; "
+        "TRUNCATE validation.quarantine CASCADE; "
+        "TRUNCATE sagas.checkpoints CASCADE; "
+        "TRUNCATE audit.log CASCADE; "
+        "TRUNCATE validation.used_proof_tokens CASCADE; "
+        "TRUNCATE sagas.idempotency CASCADE;"
+    )
+    print("  Cleaning PostgreSQL tables (via docker exec)...")
+    result = subprocess.run(
+        ["docker", "exec", "smartledger-postgres",
+         "psql", "-U", "smartledger", "-d", "smartledger", "-c", sql],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        # Some tables may not exist yet (first run) — ignore those errors
+        if "does not exist" not in result.stderr:
+            raise RuntimeError(f"psql failed: {result.stderr.strip()}")
     print("    ✓ PostgreSQL tables truncated")
 
     print("  Cleaning Redis stream...")
     r = await aioredis.from_url(redis_url, decode_responses=True)
     try:
+        # Delete only the event stream key — do NOT FLUSHDB as that also
+        # wipes the consumer group, causing the agent to enter a NOGROUP error loop.
         await r.delete("smartledger:events")
-        # Also clear any contract locks
+        # Clear any per-contract locks
         lock_keys = []
         async for key in r.scan_iter("smartledger:lock:*"):
             lock_keys.append(key)
