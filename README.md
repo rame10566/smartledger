@@ -186,6 +186,64 @@ cd apps/dashboard-ui && pnpm dev                 # port 3000
 
 ---
 
+## Running on Linux
+
+The default Quick Start above targets macOS with Docker Desktop. To run on any Linux system, the differences are minimal — everything runs in Docker, so the host requirements are small.
+
+### Host prerequisites (Linux)
+
+| Requirement | Notes |
+|---|---|
+| **Docker Engine 20.10+** with Compose v2 plugin | Use `docker compose` (v2), not `docker-compose` (v1). Install via [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) |
+| **`curl` and `tar`** | Pre-installed on all major distros |
+| **`uv`** (Python runner) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| **Node.js 18+** | Required only for the one-time Fabric chaincode `npm install` during `setup-fabric.sh`. Install via `apt install nodejs npm` or [nvm](https://github.com/nvm-sh/nvm) |
+
+Python, pnpm, and all application dependencies run inside Docker — they do not need to be installed on the host.
+
+### What works without any changes
+
+- All Docker images (`python:3.12-slim`, `node:22-alpine`, `postgres:16-alpine`, `redis:7-alpine`) are multi-architecture and run on both amd64 and arm64 Linux.
+- `setup-fabric.sh` detects the OS and CPU architecture automatically (`uname -s` / `uname -m`) and downloads the correct Hyperledger Fabric binaries for Linux. Nothing needs to be changed.
+- The Fabric binaries directory (`infra/fabric/bin/`) is gitignored — on a fresh clone it is empty and filled by the setup script.
+
+### Setup steps (Linux)
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/YOUR_ORG/smartledger.git
+cd smartledger
+
+# 2. Copy and configure environment
+cp .env.example .env
+# Edit .env and set: ANTHROPIC_API_KEY=sk-ant-...
+
+# 3. Build all Docker images
+docker compose build
+
+# 4. Bootstrap the Hyperledger Fabric network (one-time)
+cd infra/fabric
+chmod +x scripts/setup-fabric.sh
+./scripts/setup-fabric.sh
+cd ../..
+
+# 5. Start all services
+docker compose -f infra/fabric/docker-compose.fabric.yml up -d
+docker compose up -d
+
+# 6. Load demo data
+uv run python scripts/seed_demo.py --clean
+```
+
+Dashboard will be available at **http://localhost:3000**.
+
+### Watch out for
+
+- **Local PostgreSQL on port 5432** — if the host already runs a PostgreSQL service, it may conflict with the Docker container on the same port. Either stop the local service (`sudo systemctl stop postgresql`) or change the host port mapping in `docker-compose.yml` (e.g. `"5433:5432"`).
+- **Docker socket permissions** — on some Linux distros, `docker` commands require `sudo` unless your user is in the `docker` group: `sudo usermod -aG docker $USER` (log out and back in after).
+
+---
+
 ## License
 
 Private — SmartLedger POC
