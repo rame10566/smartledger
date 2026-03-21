@@ -164,12 +164,15 @@ cd apps/dashboard-ui && pnpm dev                 # port 3000
 | Phase | Description | Status |
 |---|---|---|
 | **A** | Foundation: schemas, models, deps, DB schema | ✅ Complete |
-| **B** | First MCP servers: Oracle LOS sim, LLAS sim, Validation, Ledger | ⏳ Next |
-| **C** | Agent core: event loop, saga, locks | ⏳ Pending |
-| **D** | Origination happy path E2E | ⏳ Pending |
-| **E** | Unhappy path: quarantine + human override + dashboard | ⏳ Pending |
-| **F** | Remaining flows: payment, PDF, all simulators, reporting | ⏳ Pending |
-| **G** | Full stack: Hyperledger Fabric live writes | ⏳ Pending |
+| **B** | First MCP servers: Oracle LOS sim, LLAS sim, Validation, Ledger | ✅ Complete |
+| **C** | Agent core: event loop, saga, locks | ✅ Complete |
+| **D** | Origination happy path E2E | ✅ Complete |
+| **E** | Unhappy path: quarantine, dashboard, SDG validate-only boundary | ✅ Complete |
+| **F** | Remaining flows: payment, PDF/Semantic AI, all 13 simulators, reporting | ✅ Complete |
+| **G** | Full stack: Hyperledger Fabric live writes (Phase 1) | ✅ Complete |
+| **H** | Integration layer: customer profile flows, conflict detection + resolution | ✅ Complete |
+
+**POC complete.** All flows verified end-to-end with live Hyperledger Fabric writes (real `tx_id` on every record).
 
 ---
 
