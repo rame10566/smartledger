@@ -27,7 +27,7 @@ All requirements are locked in `REQUIREMENTS.md` (20 sections, ~1000 lines).
 |---|---|
 | **Project scope** | Validation-gated ledger + migration bridge. Auto finance domain. |
 | **Architecture** | AI Agent orchestrated, MCP protocol, Redis Streams event bus, Hyperledger Fabric |
-| **Agent flows** | 5 flows defined: Origination, Payment, Report Generation, PDF Ingestion, Human-in-the-Loop Override |
+| **Agent flows** | 6 flows defined: Origination, Payment, Report Generation, PDF Ingestion, Customer Profile Update, Conflict Resolution |
 | **18 architecture gaps** | All identified and resolved (event delivery, concurrency, failure handling, security, idempotency, observability, etc.) |
 | **Security model** | 3 layers: TLS, JWT, per-tool authorization matrix. Validation proof tokens required for all ledger writes. |
 | **Data schemas** | Schema registry structure defined. Key schemas: event envelope, origination record, accounting record. |

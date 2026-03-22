@@ -329,6 +329,12 @@ class TestValidateEventTool:
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=False)
 
+        # conn.transaction() is a sync call returning an async context manager
+        mock_txn = MagicMock()
+        mock_txn.__aenter__ = AsyncMock(return_value=mock_txn)
+        mock_txn.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.transaction = MagicMock(return_value=mock_txn)
+
         mock_pool = MagicMock()
         mock_pool.acquire.return_value = mock_conn
 

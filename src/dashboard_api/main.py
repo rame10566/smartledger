@@ -6,10 +6,8 @@ Reads from PostgreSQL directly and calls Ledger / Validation MCP servers.
 
 Endpoints:
   GET  /api/health
-  GET  /api/quarantine                              — list quarantined events
+  GET  /api/quarantine                              — list quarantined events (read-only visibility)
   GET  /api/quarantine/{event_id}                   — single quarantine record
-  POST /api/quarantine/{event_id}/approve           — human approves override
-  POST /api/quarantine/{event_id}/reject            — human rejects
   GET  /api/conflicts                               — list active conflict pairs (LLAS Admin)
   GET  /api/conflicts/{conflict_pair_id}            — side-by-side comparison + LLAS profile
   POST /api/conflicts/{conflict_pair_id}/resolve    — select winning value (LLAS Admin)
@@ -17,6 +15,9 @@ Endpoints:
   GET  /api/contracts/{contract_id}/audit
   GET  /api/contracts/{contract_id}/state
   GET  /api/contracts                               — list contracts (recent)
+
+SDG Boundary: No approve/reject endpoints. Quarantined data is read-only;
+the originating system must correct and resend.
 
 CORS is open for POC (Dashboard UI is on :3000, API on :8000).
 """

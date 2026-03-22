@@ -325,7 +325,7 @@
 - [ ] SVAL-07: Insurance lapse mid-contract
 - [ ] SVAL-08: Early payoff
 - [x] SVAL-09: Missing required fields → schema rejection
-- [ ] SVAL-10: Override → **N/A** (SDG boundary: no overrides; quarantine is read-only)
+- [x] SVAL-10: Override → **N/A — deleted** (SDG boundary: no overrides; quarantine is read-only)
 - [ ] SVAL-11: CRM contact update (SR) → validates → customer_update record written
 - [ ] SVAL-12: Portal payment method update → validates → written
 - [ ] SVAL-13: CRM + Portal concurrent address conflict → both quarantined (conflict)
@@ -343,7 +343,7 @@
 
 ## Definition of Done (POC)
 
-- [x] SVAL E2E scenarios implemented (SVAL-01/02/03/04/06/09; SVAL-05/07/08 pending)
+- [x] SVAL E2E scenarios implemented (SVAL-01/02/03/04/06/09; SVAL-10 N/A — deleted; SVAL-05/07/08/11-16 deferred)
 - [x] Origination happy path runs end-to-end in < 5 seconds
 - [x] `docker compose up -d` starts the full stack cleanly (14 services)
 - [x] Dashboard shows contract lifecycle, quarantine audit trail, reports
