@@ -214,83 +214,83 @@
 
 ---
 
-## Phase H — Integration Layer + Customer Profile Flows ⏳ PENDING
+## Phase H — Integration Layer + Customer Profile Flows ✅ COMPLETE
 
 > Integration System as separate simulated MCP server. Source systems call it when pushing customer data to LLAS. SmartLedger intercepts, validates, and audits every change at this boundary.
 
 ### H1. Integration System Simulator (`src/mcp_servers/simulated/integration/server.py`) — Port 8022
-- [ ] FastMCP server on port 8022
-- [ ] Tool: `submit_contact_update(contract_id, source_system, changes, source_ref)` → publishes `integration.contact_update_requested`
-- [ ] Tool: `submit_payment_update(contract_id, source_system, changes, source_ref)` → publishes `integration.payment_update_requested`
-- [ ] Tool: `submit_insurance_update(contract_id, source_system, changes, source_ref)` → publishes `integration.insurance_update_requested`
-- [ ] Tool: `submit_llas_sync(contract_id, source_system, sync_payload)` → publishes `integration.llas_sync_requested`
-- [ ] Tool: `get_integration_status(integration_ref)` → returns pending / validated / quarantined / rejected
-- [ ] Basic format/syntax validation only (no business rules — by design)
-- [ ] Generates `integration_ref` UUID per submission
+- [x] FastMCP server on port 8022
+- [x] Tool: `submit_contact_update(contract_id, source_system, changes, source_ref)` → publishes `integration.contact_update_requested`
+- [x] Tool: `submit_payment_update(contract_id, source_system, changes, source_ref)` → publishes `integration.payment_update_requested`
+- [x] Tool: `submit_insurance_update(contract_id, source_system, changes, source_ref)` → publishes `integration.insurance_update_requested`
+- [x] Tool: `submit_llas_sync(contract_id, source_system, sync_payload)` → publishes `integration.llas_sync_requested`
+- [x] Tool: `get_integration_status(integration_ref)` → returns pending / validated / quarantined / rejected
+- [x] Basic format/syntax validation only (no business rules — by design)
+- [x] Generates `integration_ref` UUID per submission
 
 ### H2. LLAS Simulator — Customer Profile State
-- [ ] Add in-memory `_CUSTOMER_PROFILES` store (seeded from origination data on startup)
-- [ ] Tool: `get_customer_profile(contract_id)` → `{address, contact, payment_info, insurance, last_updated_by, last_updated_at}`
-- [ ] Tool: `update_customer_profile(contract_id, changes, validated_by, source_system)` → updates in-memory profile
-- [ ] Tool: `get_payment_info(contract_id)` → `{method, bank_account_last4, routing_last4, payment_date}`
-- [ ] Profile seeded from origination contract data (address, contact from Oracle LOS)
+- [x] Add in-memory `_CUSTOMER_PROFILES` store (seeded from origination data on startup)
+- [x] Tool: `get_customer_profile(contract_id)` → `{address, contact, payment_info, insurance, last_updated_by, last_updated_at}`
+- [x] Tool: `update_customer_profile(contract_id, changes, validated_by, source_system)` → updates in-memory profile
+- [x] Tool: `get_payment_info(contract_id)` → `{method, bank_account_last4, routing_last4, payment_date}`
+- [x] Profile seeded from origination contract data (address, contact from Oracle LOS)
 
 ### H3. CRM Simulator — Service Request Lifecycle
-- [ ] Tool: `create_service_request(contract_id, sr_type, requested_changes, customer_id)` → SR with reference (e.g. `SR-2026-0042`)
-- [ ] Tool: `get_service_request(sr_id)` → SR details + status
-- [ ] Tool: `complete_service_request(sr_id)` → calls Integration System MCP → returns `integration_ref`
-- [ ] Tool: `list_service_requests(contract_id?, status?)` → list SRs
-- [ ] SR types: `CONTACT_UPDATE`, `PAYMENT_UPDATE`, `INSURANCE_UPDATE`, `COBORROWER_UPDATE`
+- [x] Tool: `create_service_request(contract_id, sr_type, requested_changes, customer_id)` → SR with reference (e.g. `SR-2026-0042`)
+- [x] Tool: `get_service_request(sr_id)` → SR details + status
+- [x] Tool: `complete_service_request(sr_id)` → calls Integration System MCP → returns `integration_ref`
+- [x] Tool: `list_service_requests(contract_id?, status?)` → list SRs
+- [x] SR types: `CONTACT_UPDATE`, `PAYMENT_UPDATE`, `INSURANCE_UPDATE`, `COBORROWER_UPDATE`
 
 ### H4. Portal + Mobile Simulators — Self-Service Updates
-- [ ] Portal: `update_contact_info(contract_id, changes)` → calls Integration System → returns `integration_ref`
-- [ ] Portal: `update_payment_method(contract_id, changes)` → calls Integration System → returns `integration_ref`
-- [ ] Mobile: same two tools as Portal
+- [x] Portal: `update_contact_info(contract_id, changes)` → calls Integration System → returns `integration_ref`
+- [x] Portal: `update_payment_method(contract_id, changes)` → calls Integration System → returns `integration_ref`
+- [x] Mobile: same two tools as Portal
 
 ### H5. LOS Simulators — LLAS Sync
-- [ ] Oracle LOS: `sync_to_llas(contract_id)` → calls Integration System with current contract data
-- [ ] Salesforce LOS: `sync_to_llas(contract_id)` → calls Integration System with current contract data
+- [x] Oracle LOS: `sync_to_llas(contract_id)` → calls Integration System with current contract data
+- [x] Salesforce LOS: `sync_to_llas(contract_id)` → calls Integration System with current contract data
 
 ### H6. Validation Engine — Customer Update Validator
-- [ ] New rule: `CONFLICT_PENDING` — same field has pending unresolved update from different source
-- [ ] New rule: `CONTRACT_STATE_INELIGIBLE` — contract state doesn't allow this change type
-- [ ] New rule: `STALE_LOS_SYNC` — LOS sync conflicts with more recent validated ledger record
-- [ ] New rule: `INVALID_PAYMENT_DATE` — payment date not between 1–28
-- [ ] New rule: `FIELD_VALUE_UNCHANGED` — proposed value identical to current LLAS profile (informational)
-- [ ] New tool: `resolve_conflict(conflict_pair_id, winning_event_id, admin_id, reason)` → validates + issues proof token + updates quarantine statuses + publishes `integration.conflict_resolved`
-- [ ] Conflict quarantine: `status='conflict'`, `conflict_pair_id` links both entries
+- [x] New rule: `CONFLICT_PENDING` — same field has pending unresolved update from different source
+- [x] New rule: `CONTRACT_STATE_INELIGIBLE` — contract state doesn't allow this change type
+- [x] New rule: `STALE_LOS_SYNC` — LOS sync conflicts with more recent validated ledger record
+- [x] New rule: `INVALID_PAYMENT_DATE` — payment date not between 1–28
+- [x] New rule: `FIELD_VALUE_UNCHANGED` — proposed value identical to current LLAS profile (informational)
+- [x] New tool: `resolve_conflict(conflict_pair_id, winning_event_id, admin_id, reason)` → validates + issues proof token + updates quarantine statuses + publishes `integration.conflict_resolved`
+- [x] Conflict quarantine: `status='conflict'`, `conflict_pair_id` links both entries
 
 ### H7. New Agent Flow — `customer_update_flow.py`
-- [ ] Handles: `integration.contact_update_requested`, `integration.payment_update_requested`, `integration.insurance_update_requested`, `integration.llas_sync_requested`
-- [ ] Handles: `integration.conflict_resolved` (post-resolution write)
-- [ ] Steps: get LLAS profile → conflict check → validate → write ledger record → update LLAS profile
-- [ ] Conflict path: quarantine both events with `status='conflict'` and `conflict_pair_id`
-- [ ] Saga checkpoints: CONTEXT_GATHERED → VALIDATED → LEDGER_WRITTEN → COMPLETED / QUARANTINED_CONFLICT
+- [x] Handles: `integration.contact_update_requested`, `integration.payment_update_requested`, `integration.insurance_update_requested`, `integration.llas_sync_requested`
+- [x] Handles: `integration.conflict_resolved` (post-resolution write)
+- [x] Steps: get LLAS profile → conflict check → validate → write ledger record → update LLAS profile
+- [x] Conflict path: quarantine both events with `status='conflict'` and `conflict_pair_id`
+- [x] Saga checkpoints: CONTEXT_GATHERED → VALIDATED → LEDGER_WRITTEN → COMPLETED / QUARANTINED_CONFLICT
 
 ### H8. New Ledger Record Type — `customer_update`
-- [ ] Fields: `contract_id`, `source_system`, `source_reference`, `integration_ref`, `change_type`, `field_changes [{field, old_value, new_value}]`, `conflict_pair_id`, `resolved_by`, `data_hash`
-- [ ] Add to schema registry: `src/shared/schemas/records/customer_update_record.json`
-- [ ] Add Pydantic model: `CustomerUpdateRecord` in `src/shared/models/records.py`
+- [x] Fields: `contract_id`, `source_system`, `source_reference`, `integration_ref`, `change_type`, `field_changes [{field, old_value, new_value}]`, `conflict_pair_id`, `resolved_by`, `data_hash`
+- [x] Add to schema registry: `src/shared/schemas/records/customer_update_record.json`
+- [x] Add Pydantic model: `CustomerUpdateRecord` in `src/shared/models/records.py`
 
 ### H9. Dashboard API — Conflict Resolution Endpoints
-- [ ] `GET /api/conflicts` — list active conflicts (LLAS Admin role required via PBAC)
-- [ ] `GET /api/conflicts/{conflict_pair_id}` — both competing values + current LLAS profile
-- [ ] `POST /api/conflicts/{conflict_pair_id}/resolve` — calls `validation.resolve_conflict()`
-- [ ] Add `llas_admin` to PBAC role matrix
+- [x] `GET /api/conflicts` — list active conflicts (LLAS Admin role required via PBAC)
+- [x] `GET /api/conflicts/{conflict_pair_id}` — both competing values + current LLAS profile
+- [x] `POST /api/conflicts/{conflict_pair_id}/resolve` — calls `validation.resolve_conflict()`
+- [x] Add `llas_admin` to PBAC role matrix
 
 ### H10. Dashboard UI — Conflicts View
-- [ ] `/conflicts` page — list of active conflict pairs (LLAS Admin only)
-- [ ] Conflict detail: side-by-side view of Source A vs Source B vs Current LLAS value
-- [ ] Source reference shown (SR number, session ID, timestamp)
-- [ ] Admin selects winning value + enters reason → calls resolve endpoint
-- [ ] On resolution: conflict removed from list, audit trail updated
+- [x] `/conflicts` page — list of active conflict pairs (LLAS Admin only)
+- [x] Conflict detail: side-by-side view of Source A vs Source B vs Current LLAS value
+- [x] Source reference shown (SR number, session ID, timestamp)
+- [x] Admin selects winning value + enters reason → calls resolve endpoint
+- [x] On resolution: conflict removed from list, audit trail updated
 
 ### H11. Seed Script — Customer Update Scenarios
-- [ ] Scenario A: Clean CRM address update (SR created → completed → validates → ledger written)
-- [ ] Scenario B: Portal payment method update (self-service → validates → ledger written)
-- [ ] Scenario C: CRM + Portal concurrent address conflict → both quarantined with conflict status
-- [ ] Scenario D: Oracle LOS sync with stale data → STALE_LOS_SYNC quarantine
-- [ ] Scenario E: Payment update on charged-off contract → CONTRACT_STATE_INELIGIBLE quarantine
+- [x] Scenario A: Clean CRM address update (SR created → completed → validates → ledger written)
+- [x] Scenario B: Portal payment method update (self-service → validates → ledger written)
+- [x] Scenario C: CRM + Portal concurrent address conflict → both quarantined with conflict status
+- [x] Scenario D: Oracle LOS sync with stale data → STALE_LOS_SYNC quarantine
+- [x] Scenario E: Payment update on charged-off contract → CONTRACT_STATE_INELIGIBLE quarantine
 
 ### H — Integration Tests
 - [ ] Source system → Integration System MCP → Redis Stream event published
@@ -353,6 +353,6 @@
 - [x] Smart Data Gateway (PBAC) — party-based access control enforced
 - [x] Hyperledger Fabric live writes (WRITE_GUARD=false, PHASE=1)
 - [ ] No PII in `contracts.records` table (hashes only) — verify in production readiness pass
-- [ ] Integration System MCP intercepts all source→LLAS data changes
-- [ ] Conflict detection catches concurrent competing updates from different source systems
-- [ ] LLAS Admin conflict resolution writes to ledger with full audit trail
+- [x] Integration System MCP intercepts all source→LLAS data changes
+- [x] Conflict detection catches concurrent competing updates from different source systems
+- [x] LLAS Admin conflict resolution writes to ledger with full audit trail
