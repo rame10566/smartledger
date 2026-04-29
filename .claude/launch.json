@@ -1,0 +1,92 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Full Stack (all services)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "--scale", "dashboard-ui=0"],
+      "port": 8000,
+      "autoPort": false
+    },
+    {
+      "name": "Dashboard UI (Next.js)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "cwd": "apps/dashboard-ui",
+      "port": 3000
+    },
+    {
+      "name": "Dashboard API (FastAPI)",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "uvicorn", "dashboard_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+      "cwd": "src",
+      "port": 8000
+    },
+    {
+      "name": "Validation Engine MCP",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "mcp_servers.validation.server"],
+      "cwd": "src",
+      "port": 8001
+    },
+    {
+      "name": "Ledger MCP",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "mcp_servers.ledger.server"],
+      "cwd": "src",
+      "port": 8002
+    },
+    {
+      "name": "Semantic AI MCP",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "mcp_servers.semantic_ai.server"],
+      "cwd": "src",
+      "port": 8003
+    },
+    {
+      "name": "Reporting MCP",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "mcp_servers.reporting.server"],
+      "cwd": "src",
+      "port": 8004
+    },
+    {
+      "name": "Simulated Systems MCP (all 13)",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "mcp_servers.simulated.launcher"],
+      "cwd": "src",
+      "port": 8010
+    },
+    {
+      "name": "AI Agent",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "agent.main"],
+      "cwd": "src",
+      "port": null
+    },
+    {
+      "name": "PostgreSQL (Docker)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "-d", "postgres"],
+      "port": 5432
+    },
+    {
+      "name": "Redis (Docker)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "-d", "redis"],
+      "port": 6379
+    },
+    {
+      "name": "Architecture Diagrams",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8888", "--directory", "docs"],
+      "port": 8888
+    },
+    {
+      "name": "Hyperledger Explorer",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["infra/fabric/scripts/start-explorer.sh"],
+      "port": 8090
+    }
+  ]
+}

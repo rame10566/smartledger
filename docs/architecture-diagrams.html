@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartLedger — Architecture Diagrams</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 0.25rem;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      margin-bottom: 2.5rem;
+    }
+    .toc {
+      background: #1e2130;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 2.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem 1.5rem;
+    }
+    .toc a {
+      color: #7dd3fc;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+    .toc a:hover { text-decoration: underline; }
+    .section {
+      background: #1e2130;
+      border: 1px solid #2d3148;
+      border-radius: 10px;
+      padding: 1.5rem 2rem 2rem;
+      margin-bottom: 2rem;
+    }
+    .section h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #2d3148;
+    }
+    .note {
+      background: #1a2535;
+      border-left: 3px solid #3b82f6;
+      border-radius: 4px;
+      padding: 0.6rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.82rem;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .mermaid {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    .port-table, .status-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    .port-table th, .status-table th {
+      background: #2d3148;
+      color: #cbd5e1;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      font-weight: 600;
+    }
+    .port-table td, .status-table td {
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid #2d3148;
+      color: #e2e8f0;
+    }
+    .port-table tr:last-child td, .status-table tr:last-child td { border-bottom: none; }
+    code {
+      background: #2d3148;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-family: "SF Mono", monospace;
+      font-size: 0.82rem;
+      color: #7dd3fc;
+    }
+  </style>
+</head>
+<body>
+  <h1>SmartLedger — Architecture Diagrams</h1>
+  <p class="subtitle">"Systems change. Platforms evolve. Contracts persist."</p>
+
+  <nav class="toc">
+    <a href="#s1">1. System Overview</a>
+    <a href="#s2">2. Agent Event Loop</a>
+    <a href="#s3">3. Origination — Happy Path</a>
+    <a href="#s4">4. Origination — Unhappy Path</a>
+    <a href="#s4b">4b. Customer Profile Update</a>
+    <a href="#s4c">4c. Conflict Resolution</a>
+    <a href="#s5">5. Proof Token Flow</a>
+    <a href="#s6">6. Saga Crash Recovery</a>
+    <a href="#s7">7. Contract State Machine</a>
+    <a href="#s8">8. PostgreSQL Schema</a>
+    <a href="#s9">9. Status &amp; State Reference</a>
+    <a href="#s10">10. Port Map</a>
+  </nav>
+
+  <!-- 1 -->
+  <div class="section" id="s1">
+    <h2>1. System Overview</h2>
+    <div class="mermaid">
+graph TB
+    subgraph EXTERNAL["External Systems (Simulated MCP Servers)"]
+        OL[Oracle LOS :8010]
+        SF[Salesforce LOS :8011]
+        LL[LLAS Accounting :8012]
+        CR[CRM :8013]
+        PM[Payment :8014]
+        IN[Insurance :8015]
+        DE[Dealer :8016]
+        CP[Customer Portal :8017]
+        MA[Mobile App :8018]
+        IV[IVR System :8019]
+        RU[Rules Engine :8020]
+        PR[Pricing Engine :8021]
+        IS[Integration System :8022]
+    end
+    subgraph BUS["Event Bus"]
+        RS[(Redis Streams)]
+    end
+    subgraph CORE["SmartLedger Core"]
+        AG[AI Agent Orchestrator]
+        VA[Validation Engine MCP :8001]
+        LE[Immutable Ledger MCP :8002]
+        SA[Semantic AI MCP :8003]
+        RE[Reporting MCP :8004]
+    end
+    subgraph FRONTEND["Dashboard"]
+        DA[Dashboard API FastAPI :8000]
+        UI[Governance Dashboard Next.js :3000]
+    end
+    subgraph INFRA["Infrastructure"]
+        PG[(PostgreSQL 16 off-chain)]
+        RD[(Redis locks + dedup)]
+        FA[(Hyperledger Fabric on-chain)]
+    end
+    EXTERNAL -->|publish events| RS
+    RS -->|consume events| AG
+    AG <-->|MCP calls| VA
+    AG <-->|MCP calls| LE
+    AG <-->|MCP calls| SA
+    AG <-->|MCP calls| RE
+    AG <-->|context queries| EXTERNAL
+    VA --> PG
+    LE --> PG
+    LE --> FA
+    AG --> PG
+    AG --> RD
+    RE --> PG
+    SA --> PG
+    DA --> PG
+    DA <-->|read ledger| LE
+    UI --> DA
+    style EXTERNAL fill:#e8f4f8,stroke:#4a9ebe,color:#000
+    style CORE fill:#e8f8e8,stroke:#4abe4a,color:#000
+    style FRONTEND fill:#f8f4e8,stroke:#be9e4a,color:#000
+    style INFRA fill:#f8e8e8,stroke:#be4a4a,color:#000
+    style BUS fill:#f4e8f8,stroke:#9e4abe,color:#000
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="section" id="s2">
+    <h2>2. Agent Event Loop</h2>
+    <div class="mermaid">
+sequenceDiagram
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant Lock as Redis Lock
+    participant Saga as Saga (PostgreSQL)
+    participant Flow as Flow Handler
+    Bus->>Agent: XREADGROUP — new event
+    Agent->>Saga: Check idempotency (event_id)
+    alt Already processed
+        Agent->>Bus: XACK (skip)
+    else Not seen
+        Agent->>Lock: SETNX contract:{id} (60s TTL)
+        alt Lock acquired
+            Agent->>Saga: Checkpoint: EVENT_RECEIVED
+            Agent->>Flow: dispatch(event)
+            Flow-->>Agent: result (written | quarantined | failed)
+            Agent->>Saga: Checkpoint: COMPLETED / QUARANTINED
+            Agent->>Lock: DEL contract:{id}
+            Agent->>Bus: XACK
+        else Lock not acquired
+            Agent->>Bus: NACK + delay retry
+        end
+    end
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="section" id="s3">
+    <h2>3. Contract Origination — Happy Path</h2>
+    <div class="mermaid">
+sequenceDiagram
+    participant OL as Oracle LOS Sim
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant LLAS as LLAS Sim
+    participant VAL as Validation Engine
+    participant LED as Ledger MCP
+    participant PG as PostgreSQL
+    OL->>Bus: publish contract.originated
+    Bus->>Agent: deliver event
+    Note over Agent: Acquire per-contract lock
+    Agent->>OL: get_contract(id)
+    OL-->>Agent: Oracle contract data
+    Agent->>LLAS: get_account(id)
+    LLAS-->>Agent: LLAS account data
+    Note over Agent: Checkpoint: CONTEXT_GATHERED
+    Agent->>VAL: validate_event(event + context)
+    VAL->>VAL: schema + cross-system + business rules
+    VAL->>PG: store proof token (jti)
+    VAL-->>Agent: ValidationResult(valid=true, proof_token=JWT)
+    Note over Agent: Checkpoint: VALIDATED
+    Agent->>LED: write_record(origination_record, proof_token)
+    LED->>LED: verify JWT + check jti unused
+    LED->>PG: INSERT contracts.records
+    LED->>PG: INSERT validation.used_proof_tokens
+    LED-->>Agent: RecordWritten(record_id, fabric_tx_id)
+    Note over Agent: Checkpoint: LEDGER_WRITTEN
+    Agent->>LED: execute_state_transition(ORIGINATED to ACTIVE)
+    LED-->>Agent: StateTransitioned
+    Note over Agent: Checkpoint: COMPLETED
+    Note over Agent: Release lock + ACK event
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div class="section" id="s4">
+    <h2>4. Contract Origination — Unhappy Path (Quarantine)</h2>
+    <div class="note">
+      <strong>SDG Validate-Only Boundary:</strong> SmartLedger does NOT approve, override, or correct data.
+      The originating system must fix and resubmit. The quarantine is a <strong>read-only audit trail</strong>.
+    </div>
+    <div class="mermaid">
+sequenceDiagram
+    participant OL as Oracle LOS (sim)
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant VAL as Validation Engine
+    participant PG as PostgreSQL
+    participant UI as Dashboard UI
+    OL->>Bus: publish contract.originated (bad data)
+    Bus->>Agent: deliver event
+    Note over Agent: Acquire per-contract lock
+    Agent->>VAL: validate_event(event + context)
+    VAL->>VAL: INVALID_INTEREST_RATE detected
+    VAL->>PG: INSERT validation.quarantine (status=pending)
+    VAL-->>Agent: ValidationResult(valid=false, failures=[...])
+    Note over Agent: Checkpoint: QUARANTINED
+    Note over Agent: Release lock + ACK event
+    Note over Agent: Nothing written to ledger
+    UI->>PG: GET /api/quarantine (read-only audit trail)
+    Note over UI: Shows rejection reasons — no approve/override buttons
+    Note over OL: Originating system corrects and resubmits
+    OL->>Bus: publish contract.originated (corrected, new event_id)
+    Note over Agent: Full validation flow runs again from scratch
+    </div>
+  </div>
+
+  <!-- 4b -->
+  <div class="section" id="s4b">
+    <h2>4b. Customer Profile Update Flow (Integration Layer)</h2>
+    <div class="note">
+      CRM, Portal, Mobile, and LOS push customer data changes via the Integration System.
+      SmartLedger intercepts at this boundary to validate and audit every change before LLAS is updated.
+    </div>
+    <div class="mermaid">
+sequenceDiagram
+    participant SRC as Source System (CRM/Portal/Mobile/LOS)
+    participant INT as Integration System :8022
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant LLAS as LLAS Sim
+    participant VAL as Validation Engine
+    participant LED as Ledger MCP
+    SRC->>INT: submit_contact_update / submit_payment_update
+    INT->>Bus: publish integration.contact_update_requested
+    Bus->>Agent: deliver event
+    Note over Agent: Acquire per-contract lock
+    Agent->>LLAS: get_customer_profile(contract_id)
+    LLAS-->>Agent: current profile
+    Agent->>VAL: validate_event(integration event + llas profile)
+    VAL->>VAL: Conflict check — same field from different source?
+    VAL->>VAL: Contract state eligibility check
+    VAL->>VAL: Business rule + field format checks
+    alt No conflict — valid update
+        VAL-->>Agent: ValidationResult(valid=true, proof_token=JWT)
+        Agent->>LED: write_record(customer_update_record, proof_token)
+        Agent->>LLAS: update_customer_profile(contract_id, changes)
+        Note over Agent: Checkpoint: COMPLETED
+    else Conflict detected
+        VAL->>VAL: Quarantine BOTH events (status=conflict, conflict_pair_id=uuid)
+        VAL-->>Agent: ValidationResult(valid=false, code=CONFLICT_PENDING)
+        Note over Agent: Neither update proceeds to LLAS
+    else Invalid — rule failure
+        VAL-->>Agent: ValidationResult(valid=false, failures=[...])
+        Note over Agent: Update blocked — source must fix and resubmit
+    end
+    Note over Agent: Release lock + ACK event
+    </div>
+  </div>
+
+  <!-- 4c -->
+  <div class="section" id="s4c">
+    <h2>4c. Conflict Resolution Flow (LLAS Admin)</h2>
+    <div class="note">
+      When two sources submit competing updates to the same field, both are blocked.
+      The LLAS Admin selects the authoritative value. SmartLedger still validates before writing.
+    </div>
+    <div class="mermaid">
+sequenceDiagram
+    participant UI as Dashboard UI
+    participant DA as Dashboard API
+    participant VAL as Validation Engine
+    participant Bus as Redis Streams
+    participant Agent as AI Agent
+    participant LED as Ledger MCP
+    participant LLAS as LLAS Sim
+    Note over UI: LLAS Admin sees Conflicts view
+    UI->>DA: GET /api/conflicts
+    DA-->>UI: source A value vs source B value + current LLAS profile
+    Note over UI: Admin selects winning value + reason
+    UI->>DA: POST /api/conflicts/{conflict_pair_id}/resolve
+    DA->>VAL: resolve_conflict(conflict_pair_id, winning_event_id, admin_id)
+    VAL->>VAL: Validate winning value (business rules still apply)
+    VAL->>VAL: Issue proof token for winning event
+    VAL->>VAL: Mark winning: status=resolved
+    VAL->>VAL: Mark losing: status=resolved, code=CONFLICT_RESOLVED_BY_ADMIN
+    VAL->>Bus: publish integration.conflict_resolved
+    Bus->>Agent: deliver integration.conflict_resolved
+    Agent->>LED: write_record(customer_update_record, proof_token)
+    Agent->>LLAS: update_customer_profile(contract_id, winning_changes)
+    Note over Agent: Checkpoint: COMPLETED
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="section" id="s5">
+    <h2>5. Validation Proof Token Flow</h2>
+    <div class="mermaid">
+sequenceDiagram
+    participant Agent as AI Agent
+    participant VAL as Validation Engine
+    participant LED as Ledger MCP
+    participant PG as PostgreSQL
+    Note over VAL: After successful validation...
+    VAL->>VAL: Generate JWT: jti=uuid, contract_id, event_id, saga_id, iat, exp=iat+60s
+    VAL->>VAL: Sign with PROOF_TOKEN_SECRET (HS256)
+    VAL-->>Agent: proof_token (JWT string)
+    Note over Agent: Agent calls write_record...
+    Agent->>LED: write_record(record, proof_token)
+    LED->>LED: 1. Verify JWT signature
+    LED->>LED: 2. Check exp not expired
+    LED->>LED: 3. Check contract_id claim matches record
+    LED->>PG: 4. SELECT used_proof_tokens WHERE jti=?
+    alt jti already used
+        LED-->>Agent: Error: PROOF_TOKEN_ALREADY_USED
+    else jti not used — all checks pass
+        LED->>PG: INSERT contracts.records
+        LED->>PG: INSERT used_proof_tokens (mark used)
+        LED-->>Agent: RecordWritten
+    end
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="section" id="s6">
+    <h2>6. Saga Crash Recovery</h2>
+    <div class="mermaid">
+sequenceDiagram
+    participant Agent as AI Agent
+    participant PG as PostgreSQL
+    participant VAL as Validation Engine
+    participant LED as Ledger MCP
+    Note over Agent: Agent crashes after VALIDATED, before LEDGER_WRITTEN
+    Note over Agent: Agent restarts
+    Agent->>PG: SELECT checkpoints WHERE status='in_progress'
+    PG-->>Agent: saga_id, last_step=VALIDATED, payload={proof_token}
+    Note over Agent: Resume from VALIDATED checkpoint
+    alt Proof token still valid (within 60s)
+        Agent->>LED: write_record(record, proof_token)
+    else Proof token expired
+        Agent->>VAL: validate_event(...) — re-validate to get new token
+        Agent->>LED: write_record(record, new_proof_token)
+    end
+    Agent->>PG: Checkpoint: LEDGER_WRITTEN
+    Agent->>PG: Checkpoint: COMPLETED
+    </div>
+  </div>
+
+  <!-- 7 -->
+  <div class="section" id="s7">
+    <h2>7. Contract State Machine</h2>
+    <div class="mermaid">
+stateDiagram-v2
+    [*] --> ORIGINATED: contract.originated validated + written
+    ORIGINATED --> ACTIVE: Insurance verified + funding confirmed
+    ACTIVE --> DELINQUENT: payment.missed
+    DELINQUENT --> ACTIVE: payment.received (catches up)
+    ACTIVE --> PAID_OFF: payoff received + balance = 0
+    DELINQUENT --> CHARGED_OFF: days_past_due > 180
+    ACTIVE --> IN_REPOSSESSION: repossession initiated
+    DELINQUENT --> IN_REPOSSESSION: repossession initiated
+    IN_REPOSSESSION --> CHARGED_OFF: repossession completed
+    PAID_OFF --> TITLE_RELEASED: title release conditions met
+    CHARGED_OFF --> [*]: End of lifecycle
+    </div>
+  </div>
+
+  <!-- 8 -->
+  <div class="section" id="s8">
+    <h2>8. PostgreSQL Schema Layout</h2>
+    <div class="mermaid">
+erDiagram
+    contracts_records {
+        uuid record_id PK
+        text contract_id FK
+        text record_type
+        jsonb payload
+        text data_hash
+        text proof_token_jti
+        text fabric_tx_id
+    }
+    contracts_state {
+        text contract_id PK
+        text current_state
+        integer days_past_due
+    }
+    sagas_checkpoints {
+        bigint id PK
+        uuid saga_id
+        text contract_id
+        uuid event_id
+        text step
+        text status
+        jsonb payload
+    }
+    sagas_processed_events {
+        uuid event_id PK
+        uuid saga_id
+        text outcome
+    }
+    validation_quarantine {
+        bigint id PK
+        uuid event_id
+        text contract_id
+        text rejection_code
+        text status
+        text conflict_pair_id
+    }
+    validation_used_proof_tokens {
+        text jti PK
+        text contract_id
+        uuid event_id
+        timestamptz expires_at
+    }
+    audit_log {
+        bigint id PK
+        text action
+        text contract_id
+        uuid event_id
+        uuid saga_id
+        jsonb details
+    }
+    contracts_records ||--o| contracts_state : "contract_id"
+    sagas_checkpoints }o--|| sagas_processed_events : "event_id"
+    contracts_records ||--o{ validation_used_proof_tokens : "proof_token_jti"
+    </div>
+  </div>
+
+  <!-- 9 -->
+  <div class="section" id="s9">
+    <h2>9. Status &amp; State Reference</h2>
+
+    <p style="font-size:0.85rem;color:#94a3b8;margin-bottom:1rem;">
+      Authoritative enum values used across database, APIs, and the Governance Dashboard.
+    </p>
+
+    <p style="font-size:0.9rem;font-weight:600;color:#cbd5e1;margin-bottom:0.5rem;">Quarantine Status</p>
+    <table class="status-table" style="margin-bottom:1.5rem">
+      <tr><th>Value</th><th>Set by</th><th>Meaning</th></tr>
+      <tr><td><code>pending</code></td><td>Validation Engine</td><td>Failed validation — originating system must correct and resubmit.</td></tr>
+      <tr><td><code>conflict</code></td><td>Validation Engine</td><td>Two sources submitted competing updates. Both quarantined as a matched pair. Awaiting LLAS Admin.</td></tr>
+      <tr><td><code>resolved</code></td><td>Validation Engine</td><td>Conflict adjudicated. Winning side applied; losing side records CONFLICT_RESOLVED_BY_ADMIN.</td></tr>
+    </table>
+    <p style="font-size:0.8rem;color:#f87171;margin-bottom:1.5rem;">No <code>approved</code> or <code>override</code> status exists. SmartLedger never grants exceptions.</p>
+
+    <p style="font-size:0.9rem;font-weight:600;color:#cbd5e1;margin-bottom:0.5rem;">Contract State</p>
+    <table class="status-table" style="margin-bottom:1.5rem">
+      <tr><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>originated</code></td><td>Received, validated, ledger written. Pre-activation.</td></tr>
+      <tr><td><code>active</code></td><td>In good standing.</td></tr>
+      <tr><td><code>delinquent</code></td><td>Past due.</td></tr>
+      <tr><td><code>charged_off</code></td><td>Written off. No further updates permitted.</td></tr>
+      <tr><td><code>paid_off</code></td><td>Fully paid. Awaiting title release.</td></tr>
+      <tr><td><code>title_released</code></td><td>Title transferred. Lifecycle complete.</td></tr>
+    </table>
+
+    <p style="font-size:0.9rem;font-weight:600;color:#cbd5e1;margin-bottom:0.5rem;">Integration Submission Status</p>
+    <table class="status-table">
+      <tr><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>pending</code></td><td>Submitted to Integration System. Event published to Redis.</td></tr>
+      <tr><td><code>validated</code></td><td>Validated. Ledger written. LLAS updated.</td></tr>
+      <tr><td><code>quarantined</code></td><td>Rejected. Originating system must correct and resubmit.</td></tr>
+      <tr><td><code>conflict</code></td><td>Competing update detected. Both quarantined pending LLAS Admin resolution.</td></tr>
+    </table>
+  </div>
+
+  <!-- 10 -->
+  <div class="section" id="s10">
+    <h2>10. MCP Server Port Map</h2>
+    <table class="port-table">
+      <tr><th>Service</th><th>Port</th><th>Type</th></tr>
+      <tr><td>Governance Dashboard</td><td>3000</td><td>Next.js</td></tr>
+      <tr><td>Dashboard API</td><td>8000</td><td>REST (FastAPI)</td></tr>
+      <tr><td>Validation Engine MCP</td><td>8001</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Immutable Ledger MCP</td><td>8002</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Semantic AI MCP</td><td>8003</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Reporting MCP</td><td>8004</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Oracle LOS (sim)</td><td>8010</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Salesforce LOS (sim)</td><td>8011</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>LLAS (sim)</td><td>8012</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>CRM (sim)</td><td>8013</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Payment (sim)</td><td>8014</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Insurance (sim)</td><td>8015</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Dealer (sim)</td><td>8016</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Customer Portal (sim)</td><td>8017</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Mobile App (sim)</td><td>8018</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>IVR (sim)</td><td>8019</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Rules Engine (sim)</td><td>8020</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Pricing Engine (sim)</td><td>8021</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>Integration System (sim)</td><td>8022</td><td>MCP (streamable-http)</td></tr>
+      <tr><td>PostgreSQL</td><td>5432</td><td>Database</td></tr>
+      <tr><td>Redis</td><td>6379</td><td>Cache + Streams</td></tr>
+    </table>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+  </script>
+</body>
+</html>

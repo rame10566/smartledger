@@ -1,0 +1,62 @@
+{
+  "name": "smartledger-network",
+  "version": "1.0.0",
+  "client": {
+    "tlsEnable": true,
+    "adminCredential": {
+      "id": "exploreradmin",
+      "password": "exploreradminpw"
+    },
+    "enableAuthentication": true,
+    "organization": "SmartLedgerOrg",
+    "connection": {
+      "timeout": {
+        "peer": {
+          "endorser": "300"
+        },
+        "orderer": "300"
+      }
+    }
+  },
+  "channels": {
+    "smartledger-channel": {
+      "peers": {
+        "peer0.org1.smartledger.local": {}
+      },
+      "connection": {
+        "timeout": {
+          "peer": {
+            "endorser": "6000",
+            "eventHub": "6000",
+            "eventReg": "6000"
+          }
+        }
+      }
+    }
+  },
+  "organizations": {
+    "SmartLedgerOrg": {
+      "mspid": "SmartLedgerOrgMSP",
+      "adminPrivateKey": {
+        "path": "/tmp/crypto/peerOrganizations/org1.smartledger.local/users/Admin@org1.smartledger.local/msp/keystore/priv_sk"
+      },
+      "peers": [
+        "peer0.org1.smartledger.local"
+      ],
+      "signedCert": {
+        "path": "/tmp/crypto/peerOrganizations/org1.smartledger.local/users/Admin@org1.smartledger.local/msp/signcerts/Admin@org1.smartledger.local-cert.pem"
+      }
+    }
+  },
+  "peers": {
+    "peer0.org1.smartledger.local": {
+      "tlsCACerts": {
+        "path": "/tmp/crypto/peerOrganizations/org1.smartledger.local/peers/peer0.org1.smartledger.local/tls/ca.crt"
+      },
+      "url": "grpcs://peer0.org1.smartledger.local:7051",
+      "grpcOptions": {
+        "ssl-target-name-override": "peer0.org1.smartledger.local"
+      }
+    }
+  }
+}

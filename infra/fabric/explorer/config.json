@@ -1,0 +1,9 @@
+{
+  "network-configs": {
+    "smartledger-network": {
+      "name": "SmartLedger Network",
+      "profile": "/tmp/connection-profile/smartledger-network.json"
+    }
+  },
+  "license": "Apache-2.0"
+}
