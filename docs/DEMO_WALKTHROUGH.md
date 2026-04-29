@@ -1,8 +1,12 @@
 # SmartLedger — Demo Walkthrough
 
-**Duration**: ~15 minutes
+**Duration**: ~20 minutes
 **Audience**: Stakeholders, architects, compliance, business
-**Prerequisites**: Full stack running (`docker compose up -d`), demo data seeded (`uv run python scripts/seed_demo.py --clean`)
+**Prerequisites**:
+- Full stack running (`docker compose up -d`)
+- Hyperledger Fabric network up (`docker compose -f infra/fabric/docker-compose.fabric.yml up -d`)
+- Hyperledger Explorer up (`infra/fabric/scripts/start-explorer.sh`)
+- Demo data seeded (`uv run python scripts/seed_demo.py --clean`)
 
 ---
 
@@ -12,7 +16,7 @@
 
 SmartLedger is a validation-gated immutable ledger for auto/vehicle finance. It sits between originating systems (LOS, CRM, portals) and the accounting system (LLAS), ensuring every data change is validated, audited, and written to an immutable blockchain before it reaches LLAS.
 
-**Architecture in one sentence**: An AI Agent orchestrates 13 source systems via MCP protocol, validates every event, and writes immutable records to Hyperledger Fabric — with full audit trail.
+**Architecture in one sentence**: An AI Agent orchestrates 13 source systems via MCP protocol, validates every event, writes immutable records to Hyperledger Fabric, and exposes two distinct frontends — an internal Governance Dashboard for ops staff and a Party Portal for the actual contract parties — backed by independent on-chain verification through Hyperledger Explorer.
 
 ---
 
@@ -103,7 +107,57 @@ SmartLedger is a validation-gated immutable ledger for auto/vehicle finance. It 
 
 ---
 
-## Scene 6: Reports (1 min)
+## Scene 6: Party Portal — Smart Data Gateway (3 min)
+
+**Portal**: http://localhost:3000/party
+
+Up to this point the demo has been the *internal ops* view — admins, auditors, operators looking at their own dashboard. Now we show what an actual contract party (borrower or lender) sees.
+
+1. **Open the Party Portal** — clean, distinct from the ops dashboard. A login form asking for entity ID and role.
+
+2. **Demo the lender experience**:
+   - Enter `SMARTLEDGER_FINANCE` and select `Lender / Capital Finance`
+   - Click "Access My Contracts"
+   - **Result**: a list of every contract this lender has originated. Each row shows the vehicle, financial terms, current state, and a green **"On-chain"** badge for contracts written with live Fabric writes.
+
+3. **Click a contract to see the detail view**:
+   - The hero element is the **Blockchain Proof** box (green): shows the Fabric `tx_id`, the SHA-256 `data_hash`, and the timestamp it was written to the ledger.
+   - Below: full contract terms, vehicle details, and a collapsible ledger history showing every record with its tx_id and hash.
+   - **Click "Copy" on the tx_id** — this is what the party would use to verify independently.
+
+4. **Now demo the SDG enforcement** — sign out and try to log in as a borrower:
+   - Enter a customer ID like `CUST-XXXXXX` (you can grab one from the lender view) and select `Borrower`
+   - **Result**: the borrower sees only *their* contract — not anyone else's.
+   - Try to access another contract by URL: `/party` will load the borrower's session, but a direct API call to a contract they don't own returns **403** with: *"You are not a party to contract '...'. The Smart Data Gateway only permits access to contracts where you are a listed party."*
+
+**Key callout**: "This is the Smart Data Gateway in action. Every party has independent visibility into their own contracts, with cryptographic proof from the blockchain — but they cannot see anyone else's data. The originating system controls the data, the ledger holds the proof, and the gateway enforces the access boundary."
+
+---
+
+## Scene 7: Independent Verification — Hyperledger Explorer (2 min)
+
+**Explorer**: http://localhost:8090
+**Login**: `exploreradmin` / `exploreradminpw`
+
+The Party Portal showed a tx_id. The question every auditor asks: *"How do I know SmartLedger isn't lying about that tx_id?"* This scene shows the answer.
+
+1. **Copy a tx_id** from the Party Portal (any contract with the green On-chain badge)
+
+2. **Open Hyperledger Explorer** at http://localhost:8090, log in
+   - **Dashboard view**: shows total blocks, transactions, peers, chaincodes — independent of SmartLedger's API
+   - **Channels**: `smartledger-channel`
+   - **Chaincodes**: `smartledger-cc` (our contract) + `_lifecycle` (Fabric system)
+
+3. **Search for the tx_id** in the Transactions tab
+   - **Result**: the actual transaction on the chain — block number, block hash, previous-block hash (the hash chain), the chaincode that wrote it (`WriteRecord` on `smartledger-cc`), the read/write set with the exact record content
+
+4. **Show the block view**: every Fabric block links to the previous block's hash. Tampering with any record would invalidate the entire chain from that point forward.
+
+**Key callout**: "Hyperledger Fabric is permissioned — there is no public Etherscan. But each member organization can run its own copy of the ledger and verify independently. In production, Capital Finance Corp would be a Fabric org with their own peer node, and the consumer would have a lightweight identity. They would never have to trust SmartLedger; they could verify the chain directly."
+
+---
+
+## Scene 8: Reports (1 min)
 
 **Dashboard**: http://localhost:3000/reports
 
@@ -123,8 +177,13 @@ Source Systems (13 simulators)
 AI Agent (orchestrator)
     ↓ MCP calls
 Validation Engine → proof token → Ledger MCP → Hyperledger Fabric
-    ↓
-Dashboard API → Governance Dashboard
+    ↓                                                  ↓
+Dashboard API ────────────►  Governance Dashboard      │
+    ↓ (JWT)                  (internal ops)            │
+Party Portal /party                                    │
+    (borrower / lender)                                │
+                              Hyperledger Explorer ◄───┘
+                              (independent verification)
 ```
 
 **Key architectural points**:
@@ -134,6 +193,8 @@ Dashboard API → Governance Dashboard
 - **Idempotency**: Same event processed twice → second one is skipped
 - **Proof tokens**: Single-use JWT, 60-second expiry, prevents unauthorized writes
 - **Hyperledger Fabric**: Permissioned blockchain — immutable, auditable, tamper-evident
+- **Smart Data Gateway**: Two faces — the internal ops dashboard and the external Party Portal — both enforce party-based access at the API layer
+- **Independent verification**: Every record carries a Fabric tx_id; parties verify on the chain directly via Hyperledger Explorer, not on faith
 
 ---
 

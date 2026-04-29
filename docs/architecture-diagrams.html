@@ -149,9 +149,11 @@ graph TB
         SA[Semantic AI MCP :8003]
         RE[Reporting MCP :8004]
     end
-    subgraph FRONTEND["Dashboard"]
+    subgraph FRONTEND["Frontends"]
         DA[Dashboard API FastAPI :8000]
-        UI[Governance Dashboard Next.js :3000]
+        UI[Governance Dashboard :3000]
+        PP[Party Portal /party JWT auth]
+        EX[Hyperledger Explorer :8090]
     end
     subgraph INFRA["Infrastructure"]
         PG[(PostgreSQL 16 off-chain)]
@@ -175,6 +177,8 @@ graph TB
     DA --> PG
     DA <-->|read ledger| LE
     UI --> DA
+    PP --> DA
+    EX -->|reads blocks| FA
     style EXTERNAL fill:#e8f4f8,stroke:#4a9ebe,color:#000
     style CORE fill:#e8f8e8,stroke:#4abe4a,color:#000
     style FRONTEND fill:#f8f4e8,stroke:#be9e4a,color:#000
@@ -538,7 +542,9 @@ erDiagram
     <h2>10. MCP Server Port Map</h2>
     <table class="port-table">
       <tr><th>Service</th><th>Port</th><th>Type</th></tr>
-      <tr><td>Governance Dashboard</td><td>3000</td><td>Next.js</td></tr>
+      <tr><td>Governance Dashboard</td><td>3000</td><td>Next.js (internal ops)</td></tr>
+      <tr><td>Party Portal</td><td>3000 (route <code>/party</code>)</td><td>Next.js — Bearer JWT (external parties)</td></tr>
+      <tr><td>Hyperledger Explorer</td><td>8090</td><td>Web UI — visual blockchain browser</td></tr>
       <tr><td>Dashboard API</td><td>8000</td><td>REST (FastAPI)</td></tr>
       <tr><td>Validation Engine MCP</td><td>8001</td><td>MCP (streamable-http)</td></tr>
       <tr><td>Immutable Ledger MCP</td><td>8002</td><td>MCP (streamable-http)</td></tr>

@@ -29,7 +29,7 @@ A bridge during the Oracle LOS → Salesforce LOS migration: both systems run in
 ```
 External Systems (Simulated MCP Servers)
   Oracle LOS │ Salesforce LOS │ LLAS │ CRM │ Payment │ Insurance │ Dealer
-  Customer Portal │ Mobile App │ IVR
+  Customer Portal │ Mobile App │ IVR │ Rules │ Pricing │ Integration
           │
           │  publish events
           ▼
@@ -44,7 +44,15 @@ External Systems (Simulated MCP Servers)
           │
           ▼
     PostgreSQL (off-chain)    Hyperledger Fabric (on-chain)
-    Redis (locks + dedup)
+    Redis (locks + dedup)              │
+                                       ▼
+                            Hyperledger Explorer :8090
+                            (visual blockchain browser)
+
+  Frontend
+  ────────
+  Governance Dashboard :3000   ──► Dashboard API :8000   (internal ops)
+      └─ /party  (Party Portal — Smart Data Gateway, JWT auth, parties only)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for full diagrams.
@@ -143,7 +151,19 @@ uv run python -m agent.main                      # agent
 
 # Dashboard
 cd apps/dashboard-ui && pnpm dev                 # port 3000
+
+# Hyperledger Explorer (visual blockchain browser)
+infra/fabric/scripts/start-explorer.sh           # port 8090
+# login: exploreradmin / exploreradminpw
 ```
+
+### Frontends
+
+| URL | Purpose | Audience |
+|---|---|---|
+| http://localhost:3000 | Governance Dashboard (ops view) | Internal staff: admin, auditor, operator, compliance |
+| http://localhost:3000/party | Party Portal (Smart Data Gateway) | External parties: borrower, lender, lessee |
+| http://localhost:8090 | Hyperledger Explorer | Independent on-chain verification of any `tx_id` |
 
 ---
 
@@ -171,8 +191,9 @@ cd apps/dashboard-ui && pnpm dev                 # port 3000
 | **F** | Remaining flows: payment, PDF/Semantic AI, all 13 simulators, reporting | ✅ Complete |
 | **G** | Full stack: Hyperledger Fabric live writes (Phase 1) | ✅ Complete |
 | **H** | Integration layer: customer profile flows, conflict detection + resolution | ✅ Complete |
+| **I** | Smart Data Gateway party portal (`/party`) + Hyperledger Explorer (`:8090`) — closes the immutability story end-to-end | ✅ Complete |
 
-**POC complete.** All flows verified end-to-end with live Hyperledger Fabric writes (real `tx_id` on every record).
+**POC complete.** All flows verified end-to-end with live Hyperledger Fabric writes (real `tx_id` on every record). Parties (borrowers, lenders) can independently authenticate, view their own contracts, and verify the on-chain transaction in Hyperledger Explorer — with no reliance on SmartLedger's own dashboard.
 
 ---
 

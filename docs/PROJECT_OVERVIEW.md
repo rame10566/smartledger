@@ -210,28 +210,30 @@ Phase G — Full Stack (Hyperledger Fabric)
 | Tech stack | ✅ Locked | All decisions made |
 | Proof token design | ✅ Done | Signed JWT — see REQUIREMENTS.md §6.4 |
 | Dashboard notification | ✅ Done | Polling (10s interval) |
-| Build order | ✅ Done | Phases A–G complete |
+| Build order | ✅ Done | Phases A–I complete |
 | Project structure | ✅ Done | Full monorepo implemented |
-| Docker Compose | ✅ Done | 14 services (all sims, core, infra) |
+| Docker Compose | ✅ Done | 15 services (all sims, core, infra) |
 | Dockerfiles | ✅ Done | All services |
 | PostgreSQL schema | ✅ Done | All 6 schemas + tables + constraints |
 | JSON Schemas | ✅ Done | 15 files in subdirectory structure |
 | Pydantic models | ✅ Done | All models, full type coverage |
 | Agent system prompt | ✅ Done | src/agent/main.py |
 | Agent core | ✅ Done | event_loop, saga, locks, mcp_client |
-| Agent flows | ✅ Done | origination, payment, pdf_ingestion |
+| Agent flows | ✅ Done | origination, payment, pdf_ingestion, customer_update |
 | MCP servers — core | ✅ Done | validation, ledger, semantic_ai, reporting |
-| MCP servers — simulated | ✅ Done | All 12 simulators (incl. Rules + Pricing Engine) |
-| Dashboard API | ✅ Done | FastAPI :8000 — contracts, quarantine (read-only), reports |
-| Dashboard UI | ✅ Done | Next.js :3000 — contracts, quarantine audit trail, reports |
-| Smart Data Gateway (PBAC) | ✅ Done | Party-based access control + field-level filtering |
+| MCP servers — simulated | ✅ Done | All 13 simulators (incl. Rules, Pricing, Integration System) |
+| Dashboard API | ✅ Done | FastAPI :8000 — contracts, quarantine (read-only), reports, conflicts, party portal |
+| Dashboard UI | ✅ Done | Next.js :3000 — contracts, quarantine audit trail, reports, conflicts |
+| Smart Data Gateway (PBAC) | ✅ Done | Party-based access control + field-level filtering on ops dashboard |
+| **Smart Data Gateway — Party Portal (Path A)** | ✅ Done | JWT-authenticated party portal at `/party`. Borrowers/lenders authenticate with `entity_id + party_type`, receive 1-hour JWT, see only contracts where they are listed parties. Returns `fabric_tx_id` + `data_hash` as on-chain proof. Endpoints: `POST /api/party/auth`, `GET /api/party/contracts`, `GET /api/party/contracts/{id}`. |
+| **Hyperledger Explorer** | ✅ Done | Visual blockchain browser at :8090. Connects to existing `smartledger_fabric_net` as external network. Browse blocks, search transactions by `tx_id`, inspect chaincode, view read/write sets. Login: `exploreradmin / exploreradminpw`. Files: `infra/fabric/explorer/` + `scripts/start-explorer.sh`. |
 | Chaincode | ✅ Done | Node.js — SmartLedgerContract on Hyperledger Fabric |
 | Fabric network config | ✅ Done | infra/fabric/ — channel, crypto, setup scripts |
 | Fabric live writes | ✅ Done | WRITE_GUARD=false, Phase 1 mode |
 | Seed script | ✅ Done | scripts/seed_demo.py — 12 demo contracts via Oracle LOS |
 | SDG validate-only boundary | ✅ Enforced | No approve/override — quarantine is read-only audit trail |
-| Tests | ⏳ Partial | Unit + integration tests written alongside each phase; SVAL-05/07/08/11-16 pending |
-| Integration Layer (Phase H) | ⏳ Pending | Integration System MCP, customer profile flows, conflict detection + LLAS Admin resolution |
+| Integration Layer (Phase H) | ✅ Done | Integration System MCP, customer profile flows, conflict detection + LLAS Admin resolution |
+| Tests | ⏳ Partial | Unit + integration tests written alongside each phase; SVAL-05/07/08 deferred |
 
 ---
 

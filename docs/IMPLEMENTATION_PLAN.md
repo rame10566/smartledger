@@ -341,16 +341,54 @@
 
 ---
 
+## Phase I — Smart Data Gateway Party Portal + Hyperledger Explorer
+
+Closes the immutability story: parties (borrowers, lenders) gain
+independent access to their contract records on the ledger, and the
+Hyperledger Explorer provides a visual chain browser for verification.
+
+### I.1 — Smart Data Gateway Party Portal (SDG Path A)
+
+- [x] `src/dashboard_api/middleware/party_auth.py` — Bearer JWT dependency (`PartyContext`), HS256 signed with `dashboard_jwt_secret`, 1-hour expiry
+- [x] `src/dashboard_api/routers/party.py`
+  - [x] `POST /api/party/auth` — verifies `entity_id` + `party_type` against `contracts.parties`, issues signed JWT
+  - [x] `GET /api/party/contracts` — lists contracts where caller is listed party (auto-filtered)
+  - [x] `GET /api/party/contracts/{id}` — full contract detail with `fabric_tx_id` + `data_hash` as on-chain proof
+  - [x] SDG enforcement: returns `403` if caller not on the contract's party list
+- [x] `src/dashboard_api/main.py` — registered `party.router` at `/api`
+- [x] `src/dashboard_api/pyproject.toml` — added `python-jose[cryptography]>=3.3`
+- [x] `apps/dashboard-ui/src/lib/partyApi.ts` — Bearer-token client, localStorage session persistence
+- [x] `apps/dashboard-ui/src/app/party/page.tsx` — three-state portal (login → contract list → detail) with prominent blockchain proof box (tx_id + data_hash + Copy button)
+- [x] `apps/dashboard-ui/src/components/NavBar.tsx` — Party Portal nav link
+
+### I.2 — Hyperledger Explorer (visual chain browser)
+
+- [x] `infra/fabric/explorer/docker-compose.explorer.yml` — Explorer + explorer-db, joins `smartledger_fabric_net` as external
+- [x] `infra/fabric/explorer/config.json` — top-level Explorer network registry
+- [x] `infra/fabric/explorer/connection-profile/smartledger-network.json` — Fabric connection profile (`SmartLedgerOrgMSP`, peer endpoint, admin cert + key paths, TLS root)
+- [x] `infra/fabric/scripts/start-explorer.sh` — verifies Fabric is running before bringing up Explorer
+- [x] `.claude/launch.json` — added "Hyperledger Explorer" dev-server config
+
+### I.3 — Documentation + visualization
+
+- [x] `docs/architecture-diagrams.html` — standalone HTML page rendering all 10 Mermaid diagrams from `ARCHITECTURE.md`
+- [x] System Overview diagram updated to include Party Portal + Explorer
+- [x] Port Map updated (3000 `/party`, 8090 Explorer)
+
+---
+
 ## Definition of Done (POC)
 
 - [x] SVAL E2E scenarios implemented (SVAL-01/02/03/04/06/09; SVAL-10 N/A — deleted; SVAL-05/07/08/11-16 deferred)
 - [x] Origination happy path runs end-to-end in < 5 seconds
-- [x] `docker compose up -d` starts the full stack cleanly (14 services)
+- [x] `docker compose up -d` starts the full stack cleanly (15 services)
 - [x] Dashboard shows contract lifecycle, quarantine audit trail, reports
 - [x] Quarantine is read-only — SDG validate-only boundary enforced
 - [x] Proof token appears on every ledger record
 - [x] Agent correctly resumes after crash at any checkpoint
-- [x] Smart Data Gateway (PBAC) — party-based access control enforced
+- [x] Smart Data Gateway (PBAC) — party-based access control enforced on internal ops dashboard
+- [x] Smart Data Gateway — Party Portal (Path A) — parties query their own contracts via JWT-auth REST gateway, see `fabric_tx_id` + `data_hash` as on-chain proof
+- [x] Hyperledger Explorer — independent visual verification of every transaction at http://localhost:8090
 - [x] Hyperledger Fabric live writes (WRITE_GUARD=false, PHASE=1)
 - [ ] No PII in `contracts.records` table (hashes only) — verify in production readiness pass
 - [x] Integration System MCP intercepts all source→LLAS data changes

@@ -34,9 +34,11 @@ graph TB
         RE[Reporting<br/>MCP :8004]
     end
 
-    subgraph FRONTEND["Dashboard"]
+    subgraph FRONTEND["Frontends"]
         DA[Dashboard API<br/>FastAPI :8000]
         UI[Governance Dashboard<br/>Next.js :3000]
+        PP[Party Portal<br/>Next.js /party — JWT auth]
+        EX[Hyperledger Explorer<br/>:8090]
     end
 
     subgraph INFRA["Infrastructure"]
@@ -64,6 +66,8 @@ graph TB
     DA --> PG
     DA <-->|read ledger| LE
     UI --> DA
+    PP --> DA
+    EX -->|read blocks| FA
 
     style EXTERNAL fill:#e8f4f8,stroke:#4a9ebe
     style CORE fill:#e8f8e8,stroke:#4abe4a
@@ -71,6 +75,11 @@ graph TB
     style INFRA fill:#f8e8e8,stroke:#be4a4a
     style BUS fill:#f4e8f8,stroke:#9e4abe
 ```
+
+**Frontend split (Phase I):**
+- **Governance Dashboard (`:3000`)** — internal ops (admin, auditor, operator, compliance). Uses `X-SmartLedger-Identity` header.
+- **Party Portal (`:3000/party`)** — external parties (borrower, lender, lessee, lessor). Uses Bearer JWT issued by `POST /api/party/auth`. Smart Data Gateway enforces party-based access at the API layer (`SDG Path A`).
+- **Hyperledger Explorer (`:8090`)** — independent visual verification of every `tx_id`. Connects to the Fabric peer with the org Admin MSP identity; serves the same data parties see in the Party Portal but read directly from the chain.
 
 ---
 
@@ -509,5 +518,7 @@ erDiagram
 | Pricing Engine (sim) | 8021 | MCP (streamable-http) |
 | Integration System (sim) | 8022 | MCP (streamable-http) |
 | Dashboard UI | 3000 | Next.js |
+| Party Portal | 3000 (route `/party`) | Next.js — Bearer JWT |
+| Hyperledger Explorer | 8090 | Web UI — visual chain browser |
 | PostgreSQL | 5432 | Database |
 | Redis | 6379 | Cache + Streams |
