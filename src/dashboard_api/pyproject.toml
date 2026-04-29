@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "asyncpg>=0.29",
     "mcp>=1.7.1",
+    "python-jose[cryptography]>=3.3",
     "smartledger-shared",
 ]
 

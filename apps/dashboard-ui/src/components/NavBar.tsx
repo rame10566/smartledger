@@ -32,6 +32,12 @@ export default function NavBar() {
         >
           Reports
         </Link>
+        <Link
+          href="/party"
+          className="text-blue-100 hover:text-white text-sm font-medium border border-blue-500 rounded px-2 py-0.5"
+        >
+          Party Portal
+        </Link>
         <div className="ml-auto">
           <IdentitySelector />
         </div>
