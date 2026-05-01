@@ -230,6 +230,7 @@ Phase G — Full Stack (Hyperledger Fabric)
 | Chaincode | ✅ Done | Node.js — SmartLedgerContract on Hyperledger Fabric |
 | Fabric network config | ✅ Done | infra/fabric/ — channel, crypto, setup scripts |
 | Fabric live writes | ✅ Done | WRITE_GUARD=false, Phase 1 mode |
+| Fabric config reference | ✅ Documented | See [`FABRIC_CONFIG.md`](FABRIC_CONFIG.md) — runtime config snapshot, change procedures, production gaps |
 | Seed script | ✅ Done | scripts/seed_demo.py — 12 demo contracts via Oracle LOS |
 | SDG validate-only boundary | ✅ Enforced | No approve/override — quarantine is read-only audit trail |
 | Integration Layer (Phase H) | ✅ Done | Integration System MCP, customer profile flows, conflict detection + LLAS Admin resolution |

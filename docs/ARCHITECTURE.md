@@ -81,6 +81,10 @@ graph TB
 - **Party Portal (`:3000/party`)** — external parties (borrower, lender, lessee, lessor). Uses Bearer JWT issued by `POST /api/party/auth`. Smart Data Gateway enforces party-based access at the API layer (`SDG Path A`).
 - **Hyperledger Explorer (`:8090`)** — independent visual verification of every `tx_id`. Connects to the Fabric peer with the org Admin MSP identity; serves the same data parties see in the Party Portal but read directly from the chain.
 
+> For the Fabric runtime configuration (state DB, orderer type, channel
+> name, MSP IDs, capabilities, ports, change procedures, production-
+> readiness gaps), see [`FABRIC_CONFIG.md`](FABRIC_CONFIG.md).
+
 ---
 
 ## 2. Agent Event Loop

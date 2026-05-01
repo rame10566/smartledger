@@ -174,7 +174,9 @@ infra/fabric/scripts/start-explorer.sh           # port 8090
 | [`REQUIREMENTS.md`](REQUIREMENTS.md) | Full locked requirements — 20 sections, all architectural decisions |
 | [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) | Project status, gap analysis, resolved decisions |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architecture diagrams (Mermaid) |
+| [`docs/FABRIC_CONFIG.md`](docs/FABRIC_CONFIG.md) | Hyperledger Fabric runtime config reference + production gaps |
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Full implementation checklist by phase |
+| [`docs/DEMO_WALKTHROUGH.md`](docs/DEMO_WALKTHROUGH.md) | 20-min stakeholder demo script |
 | [`.env.example`](.env.example) | All environment variables |
 
 ---
