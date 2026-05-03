@@ -13,7 +13,11 @@
 #
 # Access:
 #   http://localhost:8090
-#   Login: exploreradmin / exploreradminpw  (configured in connection-profile)
+#   Login: exploreradmin / exploreradminpw
+#
+# NOTE: Explorer admin credentials are in connection-profile/smartledger-network.json
+# (static JSON — cannot use env var substitution). These are local POC passwords only.
+# For non-local deployment, replace the password in that JSON file.
 #
 # Stop:
 #   docker compose -f docker-compose.explorer.yml down
@@ -29,7 +33,7 @@ services:
     environment:
       DATABASE_DATABASE: fabricexplorer
       DATABASE_USERNAME:  hppoc
-      DATABASE_PASSWORD:  password
+      DATABASE_PASSWORD:  ${EXPLORER_DB_PASSWORD:-password}
     volumes:
       - explorer_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -49,7 +53,7 @@ services:
       DATABASE_HOST:        explorerdb.mynetwork.com
       DATABASE_DATABASE:    fabricexplorer
       DATABASE_USERNAME:    hppoc
-      DATABASE_PASSWD:      password
+      DATABASE_PASSWD:      ${EXPLORER_DB_PASSWORD:-password}
       LOG_LEVEL_APP:        info
       LOG_LEVEL_DB:         info
       LOG_LEVEL_CONSOLE:    info

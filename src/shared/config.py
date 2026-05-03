@@ -2,7 +2,10 @@
 Shared configuration loaded from environment variables.
 All services import from here — single source of truth for config.
 """
+import os
 from functools import lru_cache
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,6 +73,34 @@ class Settings(BaseSettings):
     fabric_admin_msp_path: str = ""   # admin MSP directory
     fabric_cfg_path: str = ""         # dir containing core.yaml
     fabric_bin_path: str = ""         # dir containing peer binary
+
+    # ─── Startup validation ───────────────────────────────────────────────────
+    @model_validator(mode="after")
+    def reject_placeholder_secrets(self) -> "Settings":
+        """Refuse to start with placeholder secrets outside test environments."""
+        import sys
+
+        if os.getenv("SMARTLEDGER_ENV") == "test":
+            return self
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return self
+        if "_pytest" in sys.modules or "pytest" in sys.modules:
+            return self
+
+        secret_fields = ("jwt_secret", "proof_token_secret", "dashboard_jwt_secret")
+        for field_name in secret_fields:
+            value = getattr(self, field_name)
+            if value.startswith("change-me"):
+                raise ValueError(
+                    f"\n\n{'=' * 70}\n"
+                    f"  SECURITY: {field_name} is still set to its placeholder value.\n\n"
+                    f"  Set a real secret in .env (min 32 chars):\n"
+                    f"    python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n\n"
+                    f"  To bypass for local development/testing:\n"
+                    f"    export SMARTLEDGER_ENV=test\n"
+                    f"{'=' * 70}\n"
+                )
+        return self
 
 
 @lru_cache

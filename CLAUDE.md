@@ -49,9 +49,15 @@ Redis Streams ──► AI Agent (orchestrator)
 - FastMCP for MCP servers
 - PostgreSQL (off-chain working layer)
 - Redis Streams (event bus + locks + dedup)
-- Hyperledger Fabric (on-chain immutable ledger)
+- Hyperledger Fabric 2.5 (on-chain immutable ledger)
+  - Channel: `smartledger-channel`
+  - Chaincode: `smartledger-cc` v1.0 (Node.js)
+  - Ordering: etcdraft, single consenter (POC; no HA)
+  - Peer org: `SmartLedgerOrg` (MSP `SmartLedgerOrgMSP`)
+  - State DB: CouchDB (rich queries enabled)
+  - mTLS everywhere; self-signed via `cryptogen`
 - Hyperledger Explorer (port 8090)
-- Docker Compose for local infra
+- Docker Compose for local infra (`docker-compose.fabric.yml` for Fabric stack)
 - pytest + pytest-asyncio (async mode)
 - ruff (line-length 100, target py312), mypy strict
 
