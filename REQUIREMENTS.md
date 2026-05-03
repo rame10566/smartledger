@@ -224,33 +224,56 @@ Every event published to the bus follows this format:
 
 ### 3.1 Contract Origination Flow
 
+The LOS is responsible for seeding the LLAS account through the Integration System **before** publishing `contract.originated`. SmartLedger never writes to LLAS directly; it only validates that LLAS already holds the account by the time origination is processed.
+
+**Pre-flow (LOS-driven, runs as a separate validated event):**
+
 ```
-1. Dealer System publishes event to bus: { event_type: "dealer.submitted", contract_id: "C-1234" }
+A. LOS calls Integration System MCP → submit_llas_sync(contract_id, source_system, sync_payload)
+   - sync_payload includes: amount_financed, monthly_payment, term_months,
+     origination_date, dealer_id, contract_type
+B. Integration System publishes event to bus: { event_type: "integration.llas_sync_requested" }
+C. Agent picks event, acquires lock LOCK("contract:C-1234")
+D. Agent calls Validation Engine → validate_event (initial sync passes when no prior
+   ledger record exists; staleness check is a no-op)
+E. Agent calls Ledger MCP → write_record(customer_update_record { change_type: "llas_sync" }, proof_token)
+F. Agent calls LLAS MCP → create_account(contract_id, account_data) — initial seed
+G. Agent releases lock; LOS publishes contract.originated next
+```
+
+**Origination flow:**
+
+```
+1. LOS publishes event to bus: { event_type: "contract.originated", contract_id: "C-1234" }
 2. Agent picks event from bus
 3. Agent acquires lock: LOCK("contract:C-1234")
+   (per-contract lock + Redis Stream order ensures the pre-flow above completed first)
 4. Agent creates saga checkpoint: EVENT_RECEIVED
-5. Agent calls Dealer MCP → get_submission(id) → full contract details (VIN, terms, customer)
-6. Agent calls CRM MCP → get_customer(id) → customer profile, risk indicators
-7. Agent calls Oracle LOS MCP → get_contract(id) → Oracle's origination version
-8. Agent calls Salesforce LOS MCP → get_contract(id) → Salesforce's origination version
-9. Agent creates saga checkpoint: CONTEXT_GATHERED
-10. Agent calls Validation Engine MCP → validate_event(event + all context)
+5. Agent calls Oracle LOS MCP → get_contract(id) → Oracle's origination version
+6. Agent calls Salesforce LOS MCP → get_contract(id) → Salesforce's origination version
+7. Agent calls LLAS MCP → get_account(contract_id) → must return found=True
+8. Agent creates saga checkpoint: CONTEXT_GATHERED
+9. Agent calls Validation Engine MCP → validate_event(event + all context)
     - Cross-system check: do Oracle and Salesforce agree? (parity)
     - Business rule check: do terms comply with policy?
-    - Sequence check: is this contract_id new? (not duplicate)
-11. Agent creates saga checkpoint: VALIDATION_COMPLETE
-12. IF VALID:
+    - LLAS presence check (RULE-XSYS-LLAS-PRESENT): LLAS account must exist and
+      key terms (amount_financed, monthly_payment) must match the LOS contract.
+      If LLAS is missing or terms diverge → LLAS_NOT_FOUND / LLAS_TERMS_MISMATCH.
+10. Agent creates saga checkpoint: VALIDATION_COMPLETE
+11. IF VALID:
     → Agent calls Ledger MCP → write_record(origination_record, validation_proof_token)
     → Agent creates saga checkpoint: LEDGER_WRITTEN
     → Agent calls Ledger MCP → execute_state_transition(contract_id, "originated")
     → Agent creates saga checkpoint: COMPLETE
-13. IF INVALID:
+12. IF INVALID:
     → Agent calls Validation Engine MCP → quarantine(event, reasons)
     → Event bus publishes: { event_type: "quarantine.pending" }
     → Agent creates saga checkpoint: QUARANTINED
-14. Agent releases lock: UNLOCK("contract:C-1234")
-15. Agent acknowledges event on bus (removes from queue)
+13. Agent releases lock: UNLOCK("contract:C-1234")
+14. Agent acknowledges event on bus (removes from queue)
 ```
+
+> **Boundary note:** SmartLedger does not call `llas.create_account` from the origination flow. The account is seeded only via the validated `integration.llas_sync_requested` path, preserving the principle that all LOS→LLAS data movement traverses the Integration System (see §3.6).
 
 ### 3.2 Payment Processing Flow
 

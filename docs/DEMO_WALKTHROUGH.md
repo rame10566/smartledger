@@ -30,7 +30,7 @@ SmartLedger is a validation-gated immutable ledger for auto/vehicle finance. It 
    - **State history**: `originated → active` transition with timestamp
    - **Audit trail**: every action logged — `ledger_written`, `state_transitioned`, actor = `smartledger-agent`
 3. **Explain the flow**:
-   > "Oracle LOS originated this contract. The event hit Redis Streams. Our AI Agent picked it up, validated it against business rules (VIN format, rate caps, credit tier eligibility via Rules Engine, rate calculation via Pricing Engine), obtained a single-use proof token from the Validation Engine, wrote the record to Hyperledger Fabric, transitioned the state, and created the LLAS account — all in under 5 seconds."
+   > "Oracle LOS originated this contract. Before publishing the origination event, Oracle pushed the LLAS account through the Integration System — SmartLedger validated that sync and recorded a `customer_update` ledger entry while the LLAS account was being seeded. Then the `contract.originated` event hit Redis Streams. Our AI Agent picked it up, validated against business rules (VIN format, rate caps, credit tier eligibility via Rules Engine, rate calculation via Pricing Engine, **and that the LLAS account is present and its key terms match the LOS contract**), obtained a single-use proof token from the Validation Engine, wrote the origination record to Hyperledger Fabric, and transitioned the state — all in under 5 seconds. SmartLedger never writes to LLAS directly; it only validates that LLAS already holds the account through the Integration boundary."
 
 **Key callout**: "Every ledger write requires a cryptographic proof token. No token, no write. The token is single-use and expires in 60 seconds."
 

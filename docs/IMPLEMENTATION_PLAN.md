@@ -43,7 +43,7 @@
 - [x] Tool: `get_account(account_id)` → full account details
 - [x] Tool: `get_balance(account_id)` → current balance breakdown
 - [x] Tool: `get_payment_history(account_id)` → list of payments
-- [x] Tool: `create_account(contract_data)` → creates LLAS account
+- [x] Tool: `create_account(contract_data)` → creates LLAS account. Invoked by `customer_update_flow` when handling an initial `integration.llas_sync_requested` (LOS seeding LLAS through the Integration System before publishing `contract.originated`). NOT called directly from the agent's origination flow — origination only validates that the account is already present (RULE-XSYS-LLAS-PRESENT).
 
 ### B3. Validation Engine MCP (`src/mcp_servers/validation/`)
 
