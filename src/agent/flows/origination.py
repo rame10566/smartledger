@@ -9,7 +9,7 @@ Steps (happy path):
   3. PROOF_TOKEN_ISSUED (checkpoint, token value redacted)
   4. LEDGER_WRITTEN    — call Ledger MCP: write_record with proof_token
   5. STATE_TRANSITIONED — call Ledger MCP: execute_state_transition → "active"
-  6. COMPLETED         — LLAS account created, saga complete
+  6. COMPLETED         — saga complete
 
 Unhappy path (quarantine):
   - If validate_event returns valid=False, the event is quarantined (Validation
@@ -275,38 +275,6 @@ class OriginationFlow:
             payload={"new_state": "active", "previous_state": "originated"},
             status="completed",
         )
-
-        # ── Step 6: Create LLAS account ───────────────────────────────────────
-        # LLAS account creation happens after successful ledger write.
-        # If this fails, the saga is still marked complete (ledger is the source
-        # of truth; LLAS creation can be retried via reconciliation).
-        financial_terms = payload.get("financial_terms", {})
-        try:
-            await llas.create_account(
-                contract_id=contract_id,
-                account_data={
-                    "contract_id":     contract_id,
-                    "contract_type":   payload.get("contract_type", "loan"),
-                    "amount_financed": financial_terms.get("amount_financed"),
-                    "term_months":     financial_terms.get("term_months"),
-                    "monthly_payment": financial_terms.get("monthly_payment"),
-                    "origination_date": payload.get("origination_date"),
-                    "dealer_id":       payload.get("dealer_id"),
-                },
-            )
-            logger.info(
-                "llas_account_created",
-                contract_id=contract_id,
-                event_id=event_id,
-            )
-        except Exception as e:
-            # Non-fatal: log and continue. Reconciliation handles LLAS sync.
-            logger.warning(
-                "llas_account_creation_failed_non_fatal",
-                contract_id=contract_id,
-                event_id=event_id,
-                error=str(e),
-            )
 
         # ── Complete ──────────────────────────────────────────────────────────
         await saga.complete(
