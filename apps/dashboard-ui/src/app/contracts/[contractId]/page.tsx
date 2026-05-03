@@ -41,11 +41,12 @@ export default function ContractDetailPage() {
       {loading && <p className="text-gray-500 text-sm">Loading…</p>}
 
       {lifecycle && (
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           {[
             { label: "Current State",   value: lifecycle.current_state.replace(/_/g, " ") },
             { label: "Total Records",   value: String(lifecycle.total_records) },
             { label: "Payments Made",   value: String(lifecycle.total_payments_made) },
+            { label: "Amount Paid",     value: `$${Number(lifecycle.total_amount_paid ?? 0).toLocaleString()}` },
           ].map(({ label, value }) => (
             <div key={label} className="bg-white shadow rounded-lg p-4">
               <p className="text-xs text-gray-500 uppercase tracking-wider">{label}</p>
@@ -55,53 +56,61 @@ export default function ContractDetailPage() {
         </div>
       )}
 
-      {lifecycle && lifecycle.state_history.length > 0 && (
+      {lifecycle && (
         <section className="mb-8">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">State History</h2>
-          <div className="flex items-center gap-2 flex-wrap">
-            {lifecycle.state_history.map((s, i) => (
-              <span key={i} className="flex items-center gap-1 text-sm">
-                {i > 0 && <span className="text-gray-400">→</span>}
-                <span className="font-medium text-gray-700">{s.state.replace(/_/g, " ")}</span>
-              </span>
-            ))}
-          </div>
+          {lifecycle.state_history.length > 0 ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              {lifecycle.state_history.map((s, i) => (
+                <span key={i} className="flex items-center gap-1 text-sm">
+                  {i > 0 && <span className="text-gray-400">→</span>}
+                  <span className="font-medium text-gray-700">{s.state.replace(/_/g, " ")}</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No state transitions yet.</p>
+          )}
         </section>
       )}
 
-      {audit.length > 0 && (
+      {!loading && (
         <section>
           <h2 className="text-lg font-semibold text-gray-800 mb-3">Audit Trail</h2>
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {["Timestamp", "Action", "Actor", "Details"].map((h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200 text-sm">
-                {audit.map((e, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                      {new Date(e.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs">{e.action}</td>
-                    <td className="px-4 py-3 text-gray-600">{e.actor}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs font-mono truncate max-w-xs">
-                      {e.details ? JSON.stringify(e.details).slice(0, 120) : "—"}
-                    </td>
+          {audit.length > 0 ? (
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {["Timestamp", "Action", "Actor", "Details"].map((h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200 text-sm">
+                  {audit.map((e, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                        {new Date(e.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs">{e.action}</td>
+                      <td className="px-4 py-3 text-gray-600">{e.actor}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs font-mono truncate max-w-xs">
+                        {e.details ? JSON.stringify(e.details).slice(0, 120) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No audit entries yet.</p>
+          )}
         </section>
       )}
     </div>

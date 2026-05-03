@@ -162,6 +162,8 @@ export default function QuarantinePage() {
           >
             <option value="pending">Pending</option>
             <option value="conflict">Conflict</option>
+            <option value="resolved">Resolved</option>
+            <option value="rejected">Rejected</option>
             <option value="">All</option>
           </select>
           <button

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   DEMO_IDENTITIES,
   getCurrentIdentity,
@@ -17,6 +17,7 @@ import {
  */
 export default function IdentitySelector() {
   const [selected, setSelected] = useState<string>(getCurrentIdentity().actor_id);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     const identity = DEMO_IDENTITIES.find((i) => i.actor_id === selected);
@@ -24,6 +25,15 @@ export default function IdentitySelector() {
       setCurrentIdentity(identity);
     }
   }, [selected]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSwitching(true);
+    setSelected(e.target.value);
+    // Brief fade-out before reload so the transition feels intentional
+    document.body.style.opacity = "0.5";
+    document.body.style.transition = "opacity 150ms ease-out";
+    setTimeout(() => window.location.reload(), 150);
+  }, []);
 
   const current = DEMO_IDENTITIES.find((i) => i.actor_id === selected);
   const isParty = current && !current.role;
@@ -36,12 +46,9 @@ export default function IdentitySelector() {
       <select
         id="identity-select"
         value={selected}
-        onChange={(e) => {
-          setSelected(e.target.value);
-          // Force page reload so data re-fetches with new identity
-          window.location.reload();
-        }}
-        className="text-xs bg-blue-700 text-white border border-blue-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+        onChange={handleChange}
+        disabled={switching}
+        className="text-xs bg-blue-700 text-white border border-blue-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
       >
         <optgroup label="Operational Roles">
           {DEMO_IDENTITIES.filter((i) => i.role).map((i) => (
@@ -58,7 +65,10 @@ export default function IdentitySelector() {
           ))}
         </optgroup>
       </select>
-      {isParty && (
+      {switching && (
+        <span className="text-xs text-blue-200 animate-pulse">Switching...</span>
+      )}
+      {!switching && isParty && (
         <span className="text-xs text-yellow-300">Party view</span>
       )}
     </div>

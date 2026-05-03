@@ -235,6 +235,7 @@ export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState<Report | null>(null);
   const [error,       setError]       = useState<string | null>(null);
   const [loadingId,   setLoadingId]   = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -251,7 +252,8 @@ export default function ReportsPage() {
         setHistory(h);
         if (t.length > 0) setSelected(t[0].type);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setInitialLoading(false));
   }, []);
 
   const selectedType = types.find((t) => t.type === selected);
@@ -312,6 +314,8 @@ export default function ReportsPage() {
           {error}
         </div>
       )}
+
+      {initialLoading && <p className="text-gray-500 text-sm mb-6">Loading report types...</p>}
 
       {/* Generate panel */}
       <div className="bg-white shadow rounded-lg p-6 mb-6">
