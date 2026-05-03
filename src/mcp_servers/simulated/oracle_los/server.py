@@ -296,6 +296,41 @@ async def originate_contract(contract_data: dict) -> dict:
 
     _contracts[contract_id] = contract
 
+    # Sync LLAS account through the Integration System BEFORE publishing
+    # contract.originated. SmartLedger validates the sync, writes a customer_update
+    # ledger record, and creates the LLAS account. Per-contract Redis lock
+    # serializes the two events so the account exists by the time origination
+    # validation runs (RULE-XSYS-LLAS-PRESENT).
+    sync_payload: dict[str, Any] = {
+        "contract_type":     contract_type,
+        "amount_financed":   contract_data["financial_terms"].get("amount_financed"),
+        "monthly_payment":   contract_data["financial_terms"].get("monthly_payment"),
+        "term_months":       contract_data["financial_terms"].get("term_months"),
+        "first_payment_date": contract_data.get("first_payment_date"),
+        "origination_date":  contract["origination_date"],
+        "dealer_id":         contract_data["dealer_id"],
+        "los_updated_at":    contract["updated_at"],
+    }
+    sync_payload = {k: v for k, v in sync_payload.items() if v is not None}
+    try:
+        await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_llas_sync",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.ORACLE_LOS,
+                "sync_payload":  sync_payload,
+            },
+        )
+    except MCPCallError as e:
+        # Don't block origination on sync failure; origination validation will
+        # detect the missing LLAS account and quarantine appropriately.
+        logger.warning(
+            "oracle_los_initial_llas_sync_failed",
+            contract_id=contract_id,
+            error=str(e),
+        )
+
     entry_id = await _publish_event(
         EventType.CONTRACT_ORIGINATED,
         contract_id,

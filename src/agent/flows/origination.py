@@ -14,9 +14,9 @@ Steps (happy path):
 Unhappy path (quarantine):
   - If validate_event returns valid=False, the event is quarantined (Validation
     Engine writes it to validation.quarantine) and the saga is checkpointed
-    QUARANTINED. A human reviews it in the Dashboard and can approve/reject.
-  - On approval, quarantine.approved event is published to the stream and this
-    flow handles it by re-running with the override context.
+    QUARANTINED. The Dashboard surfaces the failure as a read-only audit
+    record. SmartLedger never approves or overrides — the originating system
+    must correct the data and resend the event for re-validation.
 
 Called by AgentEventLoop when event_type == "contract.originated".
 """

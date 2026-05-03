@@ -282,24 +282,46 @@ class CustomerUpdateFlow:
             change_type=customer_update_record["change_type"],
         )
 
-        # ── Step 5: Update LLAS customer profile ──────────────────────────────
+        # ── Step 5: Apply change to LLAS ──────────────────────────────────────
+        # For an initial llas_sync (LOS seeding LLAS before contract.originated),
+        # changes carry account-creation fields (amount_financed, monthly_payment, …)
+        # and the LLAS account does not yet exist → create it.
+        # All other cases (contact/payment/insurance updates, llas_sync amendments)
+        # update the customer profile.
+        is_initial_llas_sync = (
+            customer_update_record["change_type"] == "llas_sync"
+            and "amount_financed" in changes
+            and not (context.get("llas_profile") or {}).get("found", False)
+        )
         try:
-            await llas.update_customer_profile(
-                contract_id=contract_id,
-                changes=changes,
-                validated_by="smartledger",
-                source_system=source_system,
-            )
-            logger.info(
-                "llas_customer_profile_updated",
-                contract_id=contract_id,
-                event_id=event_id,
-                changed_keys=field_names,
-            )
+            if is_initial_llas_sync:
+                await llas.create_account(
+                    contract_id=contract_id,
+                    account_data=changes,
+                )
+                logger.info(
+                    "llas_account_created_via_integration",
+                    contract_id=contract_id,
+                    event_id=event_id,
+                    source_system=source_system,
+                )
+            else:
+                await llas.update_customer_profile(
+                    contract_id=contract_id,
+                    changes=changes,
+                    validated_by="smartledger",
+                    source_system=source_system,
+                )
+                logger.info(
+                    "llas_customer_profile_updated",
+                    contract_id=contract_id,
+                    event_id=event_id,
+                    changed_keys=field_names,
+                )
         except Exception as e:
             # Non-fatal — ledger is source of truth; LLAS can be reconciled
             logger.warning(
-                "llas_profile_update_failed_non_fatal",
+                "llas_apply_failed_non_fatal",
                 contract_id=contract_id,
                 event_id=event_id,
                 error=str(e),

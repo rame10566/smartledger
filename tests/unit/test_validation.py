@@ -217,7 +217,27 @@ class TestValidationLogic:
         codes = [f["code"] for f in failures]
         assert "VIN_MISMATCH" not in codes
 
-    def test_existing_llas_account_flags_duplicate(self):
+    def test_missing_llas_account_flags_not_found(self):
+        """Origination requires LLAS account to be seeded by LOS via Integration first."""
+        from mcp_servers.validation.server import _validate_origination
+
+        payload = {
+            "contract_id": "ORC-2024-001",
+            "vehicle": {"vin": "4T1BF3EK8AU138001"},
+            "financial_terms": {
+                "amount_financed": 25000.0, "term_months": 60,
+                "interest_rate": 6.99, "monthly_payment": 483.0,
+            },
+            "dealer_id": "DLR-001",
+        }
+        context = {
+            "llas_account": {"found": False, "contract_id": "ORC-2024-001"},
+        }
+        failures = _validate_origination(payload, context)
+        codes = [f["code"] for f in failures]
+        assert "LLAS_NOT_FOUND" in codes
+
+    def test_present_llas_account_with_matching_terms_passes(self):
         from mcp_servers.validation.server import _validate_origination
 
         payload = {
@@ -231,13 +251,40 @@ class TestValidationLogic:
         }
         context = {
             "llas_account": {
-                "found": True,              # account already exists!
+                "found": True,
                 "account_number": "LLAS-ORC-2024-001",
-            }
+                "current_balance": 25000.0,
+                "next_payment_amount": 483.0,
+            },
         }
         failures = _validate_origination(payload, context)
         codes = [f["code"] for f in failures]
-        assert "DUPLICATE_ORIGINATION" in codes
+        assert "LLAS_NOT_FOUND" not in codes
+        assert "LLAS_TERMS_MISMATCH" not in codes
+
+    def test_present_llas_account_with_mismatched_terms_flags_mismatch(self):
+        from mcp_servers.validation.server import _validate_origination
+
+        payload = {
+            "contract_id": "ORC-2024-001",
+            "vehicle": {"vin": "4T1BF3EK8AU138001"},
+            "financial_terms": {
+                "amount_financed": 25000.0, "term_months": 60,
+                "interest_rate": 6.99, "monthly_payment": 483.0,
+            },
+            "dealer_id": "DLR-001",
+        }
+        context = {
+            "llas_account": {
+                "found": True,
+                "account_number": "LLAS-ORC-2024-001",
+                "current_balance": 24000.0,    # mismatch
+                "next_payment_amount": 500.0,  # mismatch
+            },
+        }
+        failures = _validate_origination(payload, context)
+        codes = [f["code"] for f in failures]
+        assert "LLAS_TERMS_MISMATCH" in codes
 
     def test_multiple_failures_returned(self):
         from mcp_servers.validation.server import _validate_origination

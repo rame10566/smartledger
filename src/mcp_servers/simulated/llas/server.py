@@ -201,10 +201,14 @@ async def get_account(contract_id: str) -> dict:
     """
     Return LLAS account details for a contract.
 
-    Returns {found: False, contract_id} if no account exists yet —
-    this is EXPECTED for newly originated contracts (they have not been activated).
+    Returns {found: True, ...account fields...} for accounts that exist.
 
-    Returns {found: True, ...account fields...} for active contracts.
+    Returns {found: False, contract_id} if no account exists yet. By the time
+    a contract.originated event fires, the LLAS account is expected to already
+    exist — the LOS publishes integration.llas_sync_requested first so the
+    Integration System (validated by SmartLedger) seeds the account through
+    the proper boundary. A {found: False} response at origination time will
+    fail RULE-XSYS-LLAS-PRESENT and quarantine the event.
     """
     account = _accounts.get(contract_id)
     if account is None:

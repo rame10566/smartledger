@@ -90,6 +90,40 @@ async def originate_contract(contract_data: dict) -> dict:
     contract_data["source_system"] = SourceSystem.SALESFORCE_LOS
     _contracts[contract_id] = contract_data
 
+    # Sync LLAS account through the Integration System BEFORE publishing
+    # contract.originated. SmartLedger validates the sync, writes a customer_update
+    # ledger record, and creates the LLAS account. Per-contract Redis lock
+    # serializes the two events so the account exists by the time origination
+    # validation runs (RULE-XSYS-LLAS-PRESENT).
+    financial_terms = contract_data.get("financial_terms", {})
+    sync_payload: dict[str, Any] = {
+        "contract_type":     contract_data.get("contract_type"),
+        "amount_financed":   financial_terms.get("amount_financed"),
+        "monthly_payment":   financial_terms.get("monthly_payment"),
+        "term_months":       financial_terms.get("term_months"),
+        "first_payment_date": contract_data.get("first_payment_date"),
+        "origination_date":  contract_data.get("origination_date"),
+        "dealer_id":         contract_data.get("dealer_id"),
+        "los_updated_at":    contract_data["created_at"],
+    }
+    sync_payload = {k: v for k, v in sync_payload.items() if v is not None}
+    try:
+        await call_mcp_tool(
+            url=settings.mcp_integration_url,
+            tool_name="submit_llas_sync",
+            arguments={
+                "contract_id":   contract_id,
+                "source_system": SourceSystem.SALESFORCE_LOS,
+                "sync_payload":  sync_payload,
+            },
+        )
+    except MCPCallError as e:
+        logger.warning(
+            "salesforce_los_initial_llas_sync_failed",
+            contract_id=contract_id,
+            error=str(e),
+        )
+
     event_id = str(uuid.uuid4())
     message: dict[str, str] = {
         "event_id":       event_id,

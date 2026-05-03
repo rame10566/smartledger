@@ -105,6 +105,16 @@ _SEED_RULES: list[dict[str, Any]] = [
         "description": "VIN in event payload must match VIN in Oracle LOS contract record",
         "config": {"check": "vin_match_oracle_los"},
     },
+    {
+        "rule_id": "RULE-XSYS-LLAS-PRESENT",
+        "rule_type": "cross_system",
+        "event_type": "contract.originated",
+        "description": (
+            "LLAS account must exist (seeded by LOS via Integration System) and "
+            "key terms (amount_financed, monthly_payment) must match the LOS contract"
+        ),
+        "config": {"check": "llas_account_present_and_matches"},
+    },
     # ── Cross-reference rules (warnings only — never block writes) ──────────
     {
         "rule_id": "RULE-XREF-ELIGIBILITY",
@@ -732,21 +742,58 @@ def _validate_origination(
                 "actual": vin,
             })
 
-    # LLAS account should NOT exist for a new origination
+    # LLAS account MUST exist by origination time. The LOS is expected to
+    # publish integration.llas_sync_requested before contract.originated, so
+    # the Integration System has already seeded the LLAS account through the
+    # validated boundary. SmartLedger only verifies presence + key terms here.
     llas_account = context.get("llas_account")
-    if llas_account and llas_account.get("found") is True:
+    if llas_account is not None and llas_account.get("found") is False:
         failures.append({
-            "rule_id": "RULE-XSYS-LLAS-NEW",
+            "rule_id": "RULE-XSYS-LLAS-PRESENT",
             "rule_type": "cross_system",
-            "code": "DUPLICATE_ORIGINATION",
+            "code": "LLAS_NOT_FOUND",
             "message": (
-                f"LLAS account already exists for contract "
-                f"'{payload.get('contract_id')}' — possible duplicate origination"
+                f"No LLAS account found for contract '{payload.get('contract_id')}'. "
+                "LOS must sync the account to LLAS via the Integration System "
+                "before publishing contract.originated."
             ),
-            "field": "contract_id",
-            "expected": "no existing LLAS account",
-            "actual": f"account {llas_account.get('account_number')} exists",
+            "field": "llas_account",
+            "expected": "existing LLAS account",
+            "actual": "not found",
         })
+    elif llas_account and llas_account.get("found") is True:
+        # LLAS exists — verify key terms agree with the LOS contract payload
+        amt_event = _get_nested(payload, "financial_terms.amount_financed")
+        amt_llas  = llas_account.get("current_balance")
+        if amt_event is not None and amt_llas is not None and float(amt_event) != float(amt_llas):
+            failures.append({
+                "rule_id": "RULE-XSYS-LLAS-PRESENT",
+                "rule_type": "cross_system",
+                "code": "LLAS_TERMS_MISMATCH",
+                "message": (
+                    f"amount_financed in event ({amt_event}) does not match "
+                    f"LLAS opening balance ({amt_llas})"
+                ),
+                "field": "financial_terms.amount_financed",
+                "expected": amt_llas,
+                "actual": amt_event,
+            })
+
+        pmt_event = _get_nested(payload, "financial_terms.monthly_payment")
+        pmt_llas  = llas_account.get("next_payment_amount")
+        if pmt_event is not None and pmt_llas is not None and float(pmt_event) != float(pmt_llas):
+            failures.append({
+                "rule_id": "RULE-XSYS-LLAS-PRESENT",
+                "rule_type": "cross_system",
+                "code": "LLAS_TERMS_MISMATCH",
+                "message": (
+                    f"monthly_payment in event ({pmt_event}) does not match "
+                    f"LLAS next_payment_amount ({pmt_llas})"
+                ),
+                "field": "financial_terms.monthly_payment",
+                "expected": pmt_llas,
+                "actual": pmt_event,
+            })
 
     return failures
 
