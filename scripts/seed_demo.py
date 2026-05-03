@@ -373,9 +373,9 @@ async def _seed_integration_scenarios(wait: bool) -> None:
             "contract_id":  "ORC-2024-001",
             "customer_id":  "CUST-001",
             "changes": {
-                "bank_name":       "Chase Bank",
+                "bank_name":       "Acme Bank",
                 "account_last4":   "7821",
-                "routing_number":  "021000021",
+                "routing_number":  "123456789",
                 "payment_day":     15,
             },
         })
@@ -501,9 +501,9 @@ async def _seed_integration_scenarios(wait: bool) -> None:
             "source_system": "customer_portal",
             "changes": {
                 "payment_info": {
-                    "bank_name":      "Wells Fargo",
+                    "bank_name":      "Sample Credit Union",
                     "account_last4":  "4321",
-                    "routing_number": "121000248",
+                    "routing_number": "987654321",
                     "payment_day":    1,
                 }
             },
