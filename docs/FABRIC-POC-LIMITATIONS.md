@@ -36,6 +36,13 @@ need to be addressed for any production deployment.
   (RS256/ES256) with separate key pairs.
 - **No PII encryption at rest** — Postgres stores customer data in
   plaintext. Production: column-level encryption or Vault transit engine.
+- **`ecdsa` Minerva timing attack (GHSA-wj6h-64fc-37mp)** — pulled in as
+  a transitive dependency of `python-jose[cryptography]`; no upstream
+  patch available. The `cryptography` backend is preferred at runtime,
+  so the vulnerable `ecdsa` code path is not exercised, but the package
+  is present in the lockfile. Production: migrate auth from `python-jose`
+  to `pyjwt[crypto]` (also more actively maintained), which removes the
+  `ecdsa` dependency entirely.
 
 ## Operational
 
