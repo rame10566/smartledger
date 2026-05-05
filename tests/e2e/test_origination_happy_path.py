@@ -42,7 +42,7 @@ DATABASE_URL = "postgresql://smartledger:smartledger_dev@localhost:5432/smartled
 REDIS_URL    = "redis://localhost:6379"
 
 # How long to wait for the agent to process an event
-AGENT_TIMEOUT_SECS = 30
+AGENT_TIMEOUT_SECS = 60
 POLL_INTERVAL_SECS = 0.5
 
 
@@ -128,10 +128,14 @@ async def _wait_for_saga_complete(
     pg_pool: asyncpg.Pool,
     contract_id: str,
     timeout: float = AGENT_TIMEOUT_SECS,
+    event_type: str = "contract.originated",
 ) -> dict | None:
     """
-    Poll sagas.processed_events until the contract's event is written.
-    Returns the row or None on timeout.
+    Poll sagas.processed_events until the saga for this contract+event_type
+    is recorded. Defaults to filtering by 'contract.originated' because
+    each contract now has two sagas (LOS first publishes
+    integration.llas_sync_requested via the Integration System, then
+    contract.originated). Returns the row or None on timeout.
     """
     start = asyncio.get_event_loop().time()
     while asyncio.get_event_loop().time() - start < timeout:
@@ -140,11 +144,12 @@ async def _wait_for_saga_complete(
             """
             SELECT event_id::text, saga_id::text, event_type, outcome, processed_at::text
             FROM sagas.processed_events
-            WHERE contract_id = $1
+            WHERE contract_id = $1 AND event_type = $2
             ORDER BY processed_at DESC
             LIMIT 1
             """,
             contract_id,
+            event_type,
         )
         if row:
             return dict(row)

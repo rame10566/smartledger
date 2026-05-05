@@ -9,6 +9,10 @@ dependencies = [
     "jsonschema>=4.22",
     "structlog>=24.0",
     "pyjwt>=2.8",
+    # Pin: cryptography 47.0.0's Rust extension uses CPU instructions that
+    # Docker Desktop's ARM Linux VM doesn't support and SIGILLs at module load.
+    # Re-evaluate when Docker Desktop ships a newer kernel.
+    "cryptography>=44,<47",
 ]
 
 # Tell setuptools: look one level up (in src/) and include only the 'shared' package tree.
